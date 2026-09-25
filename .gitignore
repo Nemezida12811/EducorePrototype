@@ -1,0 +1,10 @@
+## Minimal .gitignore definitions
+# Add more for technologies used in your project
+.DS_Store
+
+# Node
+node_modules/
+
+# Python
+__pycache__/
+.venv/
