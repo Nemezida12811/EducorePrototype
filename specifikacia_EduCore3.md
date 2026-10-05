@@ -933,7 +933,7 @@ Technologický stack bol zúžený z pôvodných alternatív na konkrétne, záv
 | Dokumentácia API | OpenAPI/Swagger UI (generované priamo z FastAPI) | Vždy aktuálna, bez manuálnej údržby |
 | Testovanie | Vitest/React Testing Library (frontend), Pytest (backend) | Unit + integračné + záťažové testy kľúčových tokov |
 
-### 15.3 Adresárová štruktúra projektu (podľa zadanej šablóny)
+### 16.3 Adresárová štruktúra projektu (podľa zadanej šablóny)
 
 ```
 /frontend
