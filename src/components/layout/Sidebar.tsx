@@ -3,6 +3,7 @@ import { university } from '../../data/demo'
 import { hrefFor, type RouteId } from '../../lib/router'
 import { NAV_ITEMS } from '../../nav'
 import { useDemo } from '../../state/DemoContext'
+import { useMine } from '../../state/useMine'
 
 interface SidebarProps {
   route: RouteId
@@ -12,6 +13,7 @@ interface SidebarProps {
 
 export function Sidebar({ route, open, onClose }: SidebarProps) {
   const { role } = useDemo()
+  const { unread } = useMine()
   const items = NAV_ITEMS.filter((item) => item.roles.includes(role))
 
   return (
@@ -53,6 +55,12 @@ export function Sidebar({ route, open, onClose }: SidebarProps) {
                   >
                     <Icon aria-hidden="true" className="size-5 shrink-0" />
                     {label}
+                    {id === 'notices' && unread > 0 && (
+                      <span className="ml-auto rounded-full bg-rose px-2 text-sm font-semibold text-wine">
+                        {unread}
+                        <span className="sr-only"> unread</span>
+                      </span>
+                    )}
                   </a>
                 </li>
               )

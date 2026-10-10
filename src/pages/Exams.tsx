@@ -6,7 +6,9 @@ import { PageHeader } from '../components/ui/PageHeader'
 import { Panel } from '../components/ui/Panel'
 import { ProgressBar } from '../components/ui/ProgressBar'
 import { initialRegisteredExamIds } from '../data/demo'
-import { getCourse, myExams } from '../data/selectors'
+import { getCourse } from '../data/selectors'
+import { useMine } from '../state/useMine'
+import { CourseLink } from '../components/ui/CourseLink'
 import type { Exam } from '../data/types'
 import { formatWeekdayDate } from '../lib/format'
 import { useDemo } from '../state/DemoContext'
@@ -15,7 +17,7 @@ const courseCell = (e: Exam) => {
   const c = getCourse(e.courseId)
   return (
     <>
-      {c.name}
+      <CourseLink courseId={c.id} />
       <span className="block text-sm font-normal text-ink-soft">{c.code}</span>
     </>
   )
@@ -24,7 +26,7 @@ const courseCell = (e: Exam) => {
 export function ExamsPage() {
   const { role, registeredExamIds, toggleExamRegistration } = useDemo()
   const [message, setMessage] = useState('')
-  const exams = myExams(role)
+  const { exams } = useMine()
   const student = role === 'student'
 
   const onToggle = (exam: Exam) => {
@@ -114,7 +116,9 @@ export function ExamsPage() {
         description={
           student
             ? 'Register for exam terms in the winter exam period. You can cancel while registration is open.'
-            : 'Exam terms for your courses and how many students have registered.'
+            : role === 'instructor'
+              ? 'Exam terms for your courses and how many students have registered.'
+              : 'All exam terms of the institution and how many students have registered.'
         }
       />
       <Panel title="Winter exam period" flush>

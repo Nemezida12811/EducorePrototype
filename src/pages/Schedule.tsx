@@ -1,10 +1,15 @@
-import { PageHeader } from '../components/ui/PageHeader'
+import { Download } from 'lucide-react'
 import { Badge } from '../components/ui/Badge'
+import { Button } from '../components/ui/Button'
+import { CourseLink } from '../components/ui/CourseLink'
+import { PageHeader } from '../components/ui/PageHeader'
 import { Panel } from '../components/ui/Panel'
 import { DEMO_DAY, semesterLabel } from '../data/demo'
-import { getCourse, mySessions } from '../data/selectors'
 import type { Day, SessionType } from '../data/types'
+import { scheduleToIcs } from '../lib/calendar'
+import { downloadFile } from '../lib/download'
 import { useDemo } from '../state/DemoContext'
+import { useMine } from '../state/useMine'
 
 const DAYS: { key: Day; label: string }[] = [
   { key: 'Mon', label: 'Monday' },
@@ -24,13 +29,23 @@ const TYPE_BORDER: Record<SessionType, string> = {
 
 export function SchedulePage() {
   const { role } = useDemo()
-  const sessions = mySessions(role)
+  const { sessions } = useMine()
 
   return (
     <>
       <PageHeader
         title="Schedule"
-        description={`${role === 'student' ? 'Your weekly timetable' : 'Your weekly teaching timetable'} for the ${semesterLabel.toLowerCase()}.`}
+        description={`${role === 'student' ? 'Your weekly timetable' : role === 'instructor' ? 'Your weekly teaching timetable' : 'The institution timetable'} for the ${semesterLabel.toLowerCase()}.`}
+        action={
+          <Button
+            variant="secondary"
+            className="bg-blush"
+            onClick={() => downloadFile('educore-schedule.ics', 'text/calendar', scheduleToIcs(sessions))}
+          >
+            <Download aria-hidden="true" className="mr-2 size-4" />
+            Export to calendar (.ics)
+          </Button>
+        }
       />
       <Panel title="Week">
         <ol className="divide-y divide-rose">
@@ -55,7 +70,9 @@ export function SchedulePage() {
                         <p className="font-display text-lg font-semibold">
                           {s.start}-{s.end}
                         </p>
-                        <p className="font-semibold">{getCourse(s.courseId).name}</p>
+                        <p className="font-semibold">
+                          <CourseLink courseId={s.courseId} />
+                        </p>
                         <p className="text-sm text-ink-soft">
                           {s.type}, room {s.room}
                         </p>

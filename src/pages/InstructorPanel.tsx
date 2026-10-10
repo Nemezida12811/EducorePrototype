@@ -1,29 +1,42 @@
 import { useId, useState } from 'react'
-import { Gauge, GraduationCap, Layers, Users } from 'lucide-react'
+import { ArrowRight, Gauge, GraduationCap, Layers, Users } from 'lucide-react'
 import { Badge } from '../components/ui/Badge'
 import { DataTable, type Column } from '../components/ui/DataTable'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Panel } from '../components/ui/Panel'
 import { ProgressBar } from '../components/ui/ProgressBar'
 import { StatCard, StatGrid } from '../components/ui/StatCard'
-import { gradingQueue, roster, rosterScores } from '../data/demo'
-import { getCourse, myCourses, teacherNames } from '../data/selectors'
+import { gradingQueue, roster, rosterGrades } from '../data/demo'
+import { getCourse, teacherNames } from '../data/selectors'
 import type { RosterStudent } from '../data/types'
 import { formatDate, percent } from '../lib/format'
+import { padRow, summarize } from '../lib/grades'
+import { courseHref } from '../lib/router'
+import { useMine } from '../state/useMine'
+
+type Row = RosterStudent & { total: number; graded: number }
 
 export function InstructorPanelPage() {
-  const taught = myCourses('instructor')
+  const taught = useMine().courses
   const [courseId, setCourseId] = useState(taught[0].id)
   const selectId = useId()
   const course = getCourse(courseId)
-  const scores = rosterScores[courseId]
 
+  const rowsFor = (id: string): Row[] => {
+    const c = getCourse(id)
+    return roster.map((s, i) => {
+      const sum = summarize(c.gradingScheme, padRow(rosterGrades[id][i], c.gradingScheme.length))
+      return { ...s, total: sum.total, graded: sum.graded }
+    })
+  }
+
+  const rows = rowsFor(courseId)
   const students = taught.reduce((sum, c) => sum + c.enrolled, 0)
   const submissions = gradingQueue.reduce((sum, g) => sum + g.submissions, 0)
-  const allPoints = taught.flatMap((c) => rosterScores[c.id].points.map((p) => percent(p, rosterScores[c.id].max)))
-  const classAverage = Math.round(allPoints.reduce((a, b) => a + b, 0) / allPoints.length)
+  const all = taught.flatMap((c) => rowsFor(c.id).map((r) => percent(r.total, r.graded)))
+  const classAverage = Math.round(all.reduce((a, b) => a + b, 0) / all.length)
 
-  const columns: Column<RosterStudent & { points: number }>[] = [
+  const columns: Column<Row>[] = [
     {
       header: 'Student',
       rowHeader: true,
@@ -34,24 +47,21 @@ export function InstructorPanelPage() {
         </>
       ),
     },
-    { header: 'Points', cell: (s) => <span className="whitespace-nowrap">{s.points} / {scores.max}</span> },
+    { header: 'Points', cell: (s) => <span className="whitespace-nowrap">{s.total} / {s.graded}</span> },
     {
       header: 'Progress',
       cell: (s) => (
         <div className="w-28">
-          <ProgressBar value={s.points} max={scores.max} label={`${s.name} progress`} />
+          <ProgressBar value={s.total} max={s.graded} label={`${s.name} progress`} />
         </div>
       ),
     },
     {
       header: 'Status',
       align: 'right',
-      cell: (s) =>
-        s.points / scores.max >= 0.5 ? <Badge tone="soft">On track</Badge> : <Badge tone="solid">Needs attention</Badge>,
+      cell: (s) => (s.total / s.graded >= 0.5 ? <Badge tone="soft">On track</Badge> : <Badge tone="solid">Needs attention</Badge>),
     },
   ]
-
-  const rows = roster.map((s, i) => ({ ...s, points: scores.points[i] }))
 
   return (
     <>
@@ -108,10 +118,11 @@ export function InstructorPanelPage() {
               <dd>
                 {course.enrolled} of {course.studentLimit}
               </dd>
-              <dt className="text-ink-soft">Status</dt>
-              <dd>{course.archived ? 'Archived' : 'Active'}</dd>
             </dl>
             <p className="mt-4 border-t border-rose pt-4 text-sm">{course.description}</p>
+            <a href={courseHref(course.id)} className="mt-4 inline-flex items-center gap-1.5 font-semibold underline underline-offset-4">
+              Open course page <ArrowRight aria-hidden="true" className="size-4" />
+            </a>
           </Panel>
 
           <Panel title="Grading queue">

@@ -4,6 +4,7 @@ import { useDemo } from '../../state/DemoContext'
 const OPTIONS: { value: Role; label: string }[] = [
   { value: 'student', label: 'Student' },
   { value: 'instructor', label: 'Instructor' },
+  { value: 'admin', label: 'Admin' },
 ]
 
 export function RoleToggle() {
@@ -18,7 +19,7 @@ export function RoleToggle() {
             type="button"
             aria-pressed={active}
             onClick={() => setRole(opt.value)}
-            className={`min-h-9 rounded px-3 text-sm font-semibold transition-colors ${
+            className={`min-h-9 rounded px-2.5 text-sm sm:px-3 font-semibold transition-colors ${
               active ? 'bg-wine text-blush' : 'text-wine hover:bg-blush'
             }`}
           >

@@ -1,6 +1,7 @@
 import { Menu } from 'lucide-react'
 import { semesterLabel, users } from '../../data/demo'
 import { useDemo } from '../../state/DemoContext'
+import { hrefFor } from '../../lib/router'
 import { RoleToggle } from './RoleToggle'
 
 export function TopBar({ onOpenNav, navOpen }: { onOpenNav: () => void; navOpen: boolean }) {
@@ -23,7 +24,7 @@ export function TopBar({ onOpenNav, navOpen }: { onOpenNav: () => void; navOpen:
 
       <div className="ml-auto flex items-center gap-4">
         <RoleToggle />
-        <div className="flex items-center gap-3">
+        <a href={hrefFor('profile')} aria-label={`Profile of ${user.name}`} className="flex items-center gap-3 rounded-md">
           <span
             aria-hidden="true"
             className="grid size-10 place-items-center rounded-full bg-wine font-display text-sm font-semibold text-blush"
@@ -34,7 +35,7 @@ export function TopBar({ onOpenNav, navOpen }: { onOpenNav: () => void; navOpen:
             <p className="font-semibold">{user.name}</p>
             <p className="text-sm">{user.detail}</p>
           </div>
-        </div>
+        </a>
       </div>
     </header>
   )

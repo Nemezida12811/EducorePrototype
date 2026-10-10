@@ -1,12 +1,35 @@
-import { useSyncExternalStore } from 'react'
+import { useMemo, useSyncExternalStore } from 'react'
 
-export type RouteId = 'dashboard' | 'courses' | 'grades' | 'schedule' | 'exams' | 'instructor'
+export type RouteId =
+  | 'dashboard'
+  | 'courses'
+  | 'grades'
+  | 'plan'
+  | 'schedule'
+  | 'exams'
+  | 'calendar'
+  | 'notices'
+  | 'instructor'
+  | 'users'
+  | 'organization'
+  | 'profile'
 
-const ROUTES: readonly RouteId[] = ['dashboard', 'courses', 'grades', 'schedule', 'exams', 'instructor']
+const ROUTES: readonly RouteId[] = [
+  'dashboard', 'courses', 'grades', 'plan', 'schedule', 'exams', 'calendar', 'notices',
+  'instructor', 'users', 'organization', 'profile',
+]
 
-function currentRoute(): RouteId {
-  const id = window.location.hash.replace(/^#\/?/, '')
-  return (ROUTES as readonly string[]).includes(id) ? (id as RouteId) : 'dashboard'
+export interface Route {
+  id: RouteId
+  /** Detail id, e.g. the course code in #/courses/ads2. */
+  param?: string
+}
+
+function parse(hash: string): Route {
+  const [id, param] = hash.replace(/^#\/?/, '').split('/')
+  return (ROUTES as readonly string[]).includes(id)
+    ? { id: id as RouteId, param: param || undefined }
+    : { id: 'dashboard' }
 }
 
 function subscribe(onChange: () => void) {
@@ -15,12 +38,10 @@ function subscribe(onChange: () => void) {
 }
 
 /** Tiny hash router: no dependency, works from any static host or file. */
-export function useRoute(): RouteId {
-  return useSyncExternalStore(subscribe, currentRoute, () => 'dashboard')
+export function useRoute(): Route {
+  const hash = useSyncExternalStore(subscribe, () => window.location.hash, () => '')
+  return useMemo(() => parse(hash), [hash])
 }
 
-export const hrefFor = (id: RouteId) => `#/${id}`
-
-export function goTo(id: RouteId) {
-  window.location.hash = `/${id}`
-}
+export const hrefFor = (id: RouteId, param?: string) => (param ? `#/${id}/${param}` : `#/${id}`)
+export const courseHref = (courseId: string) => hrefFor('courses', courseId)

@@ -1,15 +1,21 @@
 import type {
-  Assessment,
   ClassSession,
   Course,
   DemoUser,
+  DirectoryUser,
   Day,
   Exam,
-  FinalMark,
+  GradingComponent,
   GradingTask,
+  Holiday,
   Notice,
-  RosterStudent,
+  OrgUnit,
   Role,
+  RosterStudent,
+  Semester,
+  StudentGrade,
+  StudyPlanItem,
+  StudyProgram,
   Teacher,
 } from './types'
 
@@ -20,7 +26,8 @@ export const university = {
 
 export const semesterLabel = 'Winter semester 2026/27'
 
-/** The demo has no clock logic: the dashboard always shows this day. */
+/** The demo has no clock: this date drives "today", calendar status and the dashboard day. */
+export const DEMO_TODAY = '2026-10-12'
 export const DEMO_DAY: Day = 'Mon'
 export const DEMO_DAY_LONG = 'Monday'
 
@@ -29,21 +36,117 @@ export const degree = { requiredCredits: 180, creditsBeforeArchive: 90 }
 export const users: Record<Role, DemoUser> = {
   student: { name: 'Eva Nováková', initials: 'EN', detail: 'Applied Informatics, year 3' },
   instructor: { name: 'Peter Horváth', initials: 'PH', detail: 'Associate professor, Informatics' },
+  admin: { name: 'Mária Szabová', initials: 'MS', detail: 'Study office administrator' },
 }
 
 export const INSTRUCTOR_ID = 't1'
+export const STUDENT_PROGRAM_ID = 'ai'
 
-export const teachers: Teacher[] = [
-  { id: 't1', name: 'Peter Horváth', title: 'Assoc. Prof.' },
-  { id: 't2', name: 'Lucia Bartošová', title: 'Dr.' },
-  { id: 't3', name: 'Martin Kolesár', title: 'Prof.' },
-  { id: 't4', name: 'Zuzana Mihalová', title: 'Dr.' },
-  { id: 't5', name: 'Katarína Ondrejová', title: 'Mgr.' },
-  { id: 't6', name: 'Tomáš Gregor', title: 'Dr.' },
-  { id: 't7', name: 'Jana Petrášová', title: 'Prof.' },
+export const orgUnits: OrgUnit[] = [
+  { id: 'fei', name: 'Faculty of Electrical Engineering and Informatics', code: 'FEI', parentId: null },
+  { id: 'kpi', name: 'Department of Computers and Informatics', code: 'KPI', parentId: 'fei' },
+  { id: 'kemt', name: 'Department of Electronics and Multimedia Telecommunications', code: 'KEMT', parentId: 'fei' },
+  { id: 'kmat', name: 'Department of Mathematics', code: 'KMAT', parentId: 'fei' },
+  { id: 'lang', name: 'Department of Languages', code: 'LJ', parentId: 'fei' },
 ]
 
-export const courses: Course[] = [
+export const studyPrograms: StudyProgram[] = [
+  { id: 'ai', name: 'Applied Informatics', degreeLevel: 'Bachelor', durationYears: 3, orgUnitId: 'kpi', students: 412 },
+  { id: 'inf', name: 'Informatics', degreeLevel: 'Master', durationYears: 2, orgUnitId: 'kpi', students: 238 },
+  { id: 'etc', name: 'Electronics and Telecommunications', degreeLevel: 'Bachelor', durationYears: 3, orgUnitId: 'kemt', students: 305 },
+  { id: 'mm', name: 'Multimedia Engineering', degreeLevel: 'Master', durationYears: 2, orgUnitId: 'kemt', students: 142 },
+]
+
+export const teachers: Teacher[] = [
+  { id: 't1', name: 'Peter Horváth', title: 'Assoc. Prof.', orgUnitId: 'kpi' },
+  { id: 't2', name: 'Lucia Bartošová', title: 'Dr.', orgUnitId: 'kpi' },
+  { id: 't3', name: 'Martin Kolesár', title: 'Prof.', orgUnitId: 'kpi' },
+  { id: 't4', name: 'Zuzana Mihalová', title: 'Dr.', orgUnitId: 'kemt' },
+  { id: 't5', name: 'Katarína Ondrejová', title: 'Mgr.', orgUnitId: 'lang' },
+  { id: 't6', name: 'Tomáš Gregor', title: 'Dr.', orgUnitId: 'kpi' },
+  { id: 't7', name: 'Jana Petrášová', title: 'Prof.', orgUnitId: 'kmat' },
+]
+
+type CourseMeta = Pick<Course, 'orgUnitId' | 'completionType' | 'gradingScheme' | 'guarantorId' | 'topics'>
+type BaseCourse = Omit<Course, keyof CourseMeta>
+
+const scheme = (...pairs: [string, number][]): GradingComponent[] => pairs.map(([name, max]) => ({ name, max }))
+
+/** Fields from the Course catalog record: department, completion type, grading scheme (sums to 100). */
+const courseMeta: Record<string, CourseMeta> = {
+  ads2: {
+    orgUnitId: 'kpi', completionType: 'Exam', guarantorId: 't1',
+    gradingScheme: scheme(['Problem sets', 20], ['Midterm test', 20], ['Exam', 60]),
+    topics: ['Graph traversal and shortest paths', 'Minimum spanning trees', 'Dynamic programming', 'Amortized analysis', 'Network flow basics'],
+  },
+  cv: {
+    orgUnitId: 'kpi', completionType: 'Exam', guarantorId: 't2',
+    gradingScheme: scheme(['Labs', 30], ['Project', 30], ['Exam', 40]),
+    topics: ['Image formation and filtering', 'Edges and keypoints', 'Convolutional networks', 'Object detection', 'Camera calibration'],
+  },
+  ddb: {
+    orgUnitId: 'kpi', completionType: 'Exam', guarantorId: 't3',
+    gradingScheme: scheme(['Quizzes', 20], ['Cluster project', 40], ['Exam', 40]),
+    topics: ['Replication models', 'Partitioning and sharding', 'Consensus protocols', 'Transactions and consistency', 'Failure handling'],
+  },
+  swa: {
+    orgUnitId: 'kpi', completionType: 'Exam', guarantorId: 't1',
+    gradingScheme: scheme(['Essay', 20], ['Design project', 30], ['Exam', 50]),
+    topics: ['Quality attributes', 'Modular monoliths and services', 'Architecture decision records', 'Observability', 'Evolution and refactoring'],
+  },
+  aml: {
+    orgUnitId: 'kpi', completionType: 'Exam', guarantorId: 't1',
+    gradingScheme: scheme(['Assignments', 30], ['Final project', 30], ['Exam', 40]),
+    topics: ['Baselines and validation', 'Feature engineering', 'Model selection', 'Deployment and monitoring'],
+  },
+  een: {
+    orgUnitId: 'lang', completionType: 'Classified credit', guarantorId: 't5',
+    gradingScheme: scheme(['Presentation', 40], ['Written test', 30], ['Oral test', 30]),
+    topics: ['Technical writing', 'Presenting a design', 'Meeting language', 'Reading specifications'],
+  },
+  sig: {
+    orgUnitId: 'kemt', completionType: 'Exam', guarantorId: 't4',
+    gradingScheme: scheme(['Labs', 30], ['Midterm test', 20], ['Exam', 50]),
+    topics: ['Signal classification', 'Fourier series and transform', 'Z transform', 'Filter design', 'Sampling'],
+  },
+  emb: {
+    orgUnitId: 'kemt', completionType: 'Exam', guarantorId: 't6',
+    gradingScheme: scheme(['Lab tasks', 40], ['Project', 30], ['Exam', 30]),
+    topics: ['Microcontroller architecture', 'Interrupts and timers', 'Real-time operating systems', 'Debugging tools', 'Low-power design'],
+  },
+  oop: {
+    orgUnitId: 'kpi', completionType: 'Exam', guarantorId: 't6',
+    gradingScheme: scheme(['Assignments', 20], ['Test', 20], ['Exam', 60]),
+    topics: ['Classes and interfaces', 'Inheritance and composition', 'Design patterns', 'Unit testing'],
+  },
+  dm: {
+    orgUnitId: 'kmat', completionType: 'Exam', guarantorId: 't7',
+    gradingScheme: scheme(['Homework', 20], ['Test', 20], ['Exam', 60]),
+    topics: ['Propositional logic', 'Combinatorics', 'Graph theory', 'Number theory'],
+  },
+  ads1: {
+    orgUnitId: 'kpi', completionType: 'Exam', guarantorId: 't1',
+    gradingScheme: scheme(['Assignments', 20], ['Test', 20], ['Exam', 60]),
+    topics: ['Complexity analysis', 'Sorting', 'Trees', 'Hash tables'],
+  },
+  os: {
+    orgUnitId: 'kpi', completionType: 'Exam', guarantorId: 't3',
+    gradingScheme: scheme(['Labs', 20], ['Test', 20], ['Exam', 60]),
+    topics: ['Processes and threads', 'Scheduling', 'Memory management', 'File systems'],
+  },
+  net: {
+    orgUnitId: 'kpi', completionType: 'Exam', guarantorId: 't6',
+    gradingScheme: scheme(['Labs', 20], ['Test', 20], ['Exam', 60]),
+    topics: ['Protocol layers', 'Routing', 'Transport protocols', 'Network security basics'],
+  },
+  ps: {
+    orgUnitId: 'kmat', completionType: 'Exam', guarantorId: 't7',
+    gradingScheme: scheme(['Homework', 20], ['Test', 20], ['Exam', 60]),
+    topics: ['Random variables', 'Estimation', 'Hypothesis testing', 'Regression basics'],
+  },
+}
+
+const baseCourses: BaseCourse[] = [
   {
     id: 'ads2',
     code: 'KPI/ADS2',
@@ -237,7 +340,9 @@ export const courses: Course[] = [
   },
 ]
 
-/** Courses the demo student is enrolled in this semester. */
+export const courses: Course[] = baseCourses.map((c) => ({ ...c, ...courseMeta[c.id] }))
+
+/** Courses the demo student is enrolled in at load time. */
 export const studentEnrolledIds = ['ads2', 'cv', 'ddb', 'swa', 'aml', 'een']
 
 export const sessions: ClassSession[] = [
@@ -269,59 +374,74 @@ export const exams: Exam[] = [
 /** Exams the demo student has already registered for. */
 export const initialRegisteredExamIds = ['e1', 'e2']
 
-export const assessments: Assessment[] = [
-  { id: 'a1', courseId: 'ads2', title: 'Midterm test', date: '2026-10-06', points: 34, maxPoints: 40 },
-  { id: 'a2', courseId: 'ads2', title: 'Problem set 3', date: '2026-10-02', points: 8, maxPoints: 10 },
-  { id: 'a3', courseId: 'cv', title: 'Lab 1: Image filtering', date: '2026-09-30', points: 9, maxPoints: 10 },
-  { id: 'a4', courseId: 'cv', title: 'Lab 2: Edge detection', date: '2026-10-07', points: 7, maxPoints: 10 },
-  { id: 'a5', courseId: 'ddb', title: 'Quiz: Replication', date: '2026-10-01', points: 4, maxPoints: 5 },
-  { id: 'a6', courseId: 'swa', title: 'Architecture essay (draft)', date: '2026-10-05', points: 17, maxPoints: 20 },
-  { id: 'a7', courseId: 'aml', title: 'Assignment 1: Baselines', date: '2026-10-08', points: 12, maxPoints: 15 },
-  { id: 'a8', courseId: 'een', title: 'Technical presentation', date: '2026-10-09', points: 18, maxPoints: 20 },
+/** The demo student's Grade records: one per course, entries aligned with the course grading scheme. */
+export const studentGrades: StudentGrade[] = [
+  { courseId: 'ads2', entries: [{ points: 17, date: '2026-10-02' }, { points: 17, date: '2026-10-06' }, { points: null }] },
+  { courseId: 'cv', entries: [{ points: 24, date: '2026-10-07' }, { points: null }, { points: null }] },
+  { courseId: 'ddb', entries: [{ points: 16, date: '2026-10-01' }, { points: null }, { points: null }] },
+  { courseId: 'swa', entries: [{ points: 17, date: '2026-10-05' }, { points: null }, { points: null }] },
+  { courseId: 'aml', entries: [{ points: 24, date: '2026-10-08' }, { points: null }, { points: null }] },
+  { courseId: 'een', entries: [{ points: 36, date: '2026-10-09' }, { points: null }, { points: null }] },
+  { courseId: 'oop', finalizedAt: '2026-01-20', entries: [{ points: 19 }, { points: 19 }, { points: 57 }] },
+  { courseId: 'dm', finalizedAt: '2026-01-28', entries: [{ points: 17 }, { points: 16 }, { points: 55 }] },
+  { courseId: 'ads1', finalizedAt: '2026-02-04', entries: [{ points: 20 }, { points: 19 }, { points: 58 }] },
+  { courseId: 'os', finalizedAt: '2026-06-10', entries: [{ points: 16 }, { points: 17 }, { points: 53 }] },
+  { courseId: 'net', finalizedAt: '2026-06-16', entries: [{ points: 15 }, { points: 15 }, { points: 50 }] },
+  { courseId: 'ps', finalizedAt: '2026-06-23', entries: [{ points: 14 }, { points: 16 }, { points: 48 }] },
 ]
 
-export const finalMarks: FinalMark[] = [
-  { courseId: 'oop', mark: 'A', date: '2026-01-20' },
-  { courseId: 'dm', mark: 'B', date: '2026-01-28' },
-  { courseId: 'ads1', mark: 'A', date: '2026-02-04' },
-  { courseId: 'os', mark: 'B', date: '2026-06-10' },
-  { courseId: 'net', mark: 'C', date: '2026-06-16' },
-  { courseId: 'ps', mark: 'C', date: '2026-06-23' },
+export const studyPlan: StudyPlanItem[] = [
+  { courseId: 'oop', yearOfStudy: 2, term: 'Winter', mandatory: true },
+  { courseId: 'dm', yearOfStudy: 2, term: 'Winter', mandatory: true },
+  { courseId: 'ads1', yearOfStudy: 2, term: 'Winter', mandatory: true },
+  { courseId: 'os', yearOfStudy: 2, term: 'Summer', mandatory: true },
+  { courseId: 'net', yearOfStudy: 2, term: 'Summer', mandatory: true },
+  { courseId: 'ps', yearOfStudy: 2, term: 'Summer', mandatory: true },
+  { courseId: 'ads2', yearOfStudy: 3, term: 'Winter', mandatory: true },
+  { courseId: 'swa', yearOfStudy: 3, term: 'Winter', mandatory: true },
+  { courseId: 'een', yearOfStudy: 3, term: 'Winter', mandatory: true },
+  { courseId: 'ddb', yearOfStudy: 3, term: 'Winter', mandatory: false },
+  { courseId: 'cv', yearOfStudy: 3, term: 'Winter', mandatory: false },
+  { courseId: 'aml', yearOfStudy: 3, term: 'Winter', mandatory: false },
+  { courseId: 'sig', yearOfStudy: 3, term: 'Winter', mandatory: false },
+  { courseId: 'emb', yearOfStudy: 3, term: 'Winter', mandatory: false },
+]
+
+export const semesters: Semester[] = [
+  {
+    id: 'w2627', academicYear: '2026/27', term: 'Winter',
+    enrollmentStart: '2026-08-24', enrollmentEnd: '2026-09-27', start: '2026-09-14',
+    teachingEnd: '2026-12-18', examStart: '2027-01-04', examEnd: '2027-02-12',
+  },
+  {
+    id: 's2627', academicYear: '2026/27', term: 'Summer',
+    enrollmentStart: '2027-01-25', enrollmentEnd: '2027-02-28', start: '2027-02-15',
+    teachingEnd: '2027-05-14', examStart: '2027-05-24', examEnd: '2027-06-30',
+  },
+]
+
+/** Semester used for the calendar export and key dates. */
+export const CURRENT_SEMESTER_ID = 'w2627'
+
+export const holidays: Holiday[] = [
+  { date: '2026-11-01', title: 'All Saints’ Day' },
+  { date: '2026-11-17', title: 'Struggle for Freedom and Democracy Day' },
+  { date: '2026-12-24', title: 'Christmas Eve' },
+  { date: '2026-12-25', title: 'Christmas Day' },
+  { date: '2026-12-26', title: 'St Stephen’s Day' },
+  { date: '2027-01-01', title: 'New Year’s Day' },
+  { date: '2027-01-06', title: 'Epiphany' },
 ]
 
 export const notices: Notice[] = [
-  {
-    id: 'n1',
-    title: 'Exam registration is open',
-    body: 'Register for first-term exams in the Exams section. Registration closes five days before each exam.',
-    date: '2026-10-07',
-    author: 'Study office',
-    audience: 'all',
-  },
-  {
-    id: 'n2',
-    title: 'Lab L-04 closed on Tuesday',
-    body: 'Network maintenance. Tuesday labs move to L-02 for this week only.',
-    date: '2026-10-08',
-    author: 'Faculty IT',
-    audience: 'all',
-  },
-  {
-    id: 'n3',
-    title: 'Library opens until 22:00',
-    body: 'Weekday opening hours are extended through the end of the winter exam period.',
-    date: '2026-10-05',
-    author: 'University library',
-    audience: 'student',
-  },
-  {
-    id: 'n4',
-    title: 'Grade entry closes on 18 January',
-    body: 'Final marks for the winter semester must be entered by the department deadline.',
-    date: '2026-10-06',
-    author: 'Study office',
-    audience: 'instructor',
-  },
+  { id: 'n1', title: 'Exam registration is open', body: 'Register for first-term exams in the Exams section. Registration closes five days before each exam.', date: '2026-10-07', author: 'Study office', audience: 'all', scope: 'institution' },
+  { id: 'n2', title: 'Lab L-04 closed on Tuesday', body: 'Network maintenance. Tuesday labs move to L-02 for this week only.', date: '2026-10-08', author: 'Faculty IT', audience: 'all', scope: 'institution' },
+  { id: 'n3', title: 'Library opens until 22:00', body: 'Weekday opening hours are extended through the end of the winter exam period.', date: '2026-10-05', author: 'University library', audience: 'student', scope: 'institution' },
+  { id: 'n4', title: 'Grade entry closes on 18 January', body: 'Final marks for the winter semester must be entered by the department deadline.', date: '2026-10-06', author: 'Study office', audience: 'instructor', scope: 'institution' },
+  { id: 'n5', title: 'Winter enrollment report is ready', body: 'Course occupancy for the winter semester is on your dashboard and can be exported as CSV.', date: '2026-10-08', author: 'Study office', audience: 'admin', scope: 'institution' },
+  { id: 'n6', title: 'Midterm results published', body: 'Midterm results are in your grades. A review session runs during Wednesday’s practical.', date: '2026-10-07', author: 'Assoc. Prof. Peter Horváth', audience: 'all', scope: 'course', courseId: 'ads2' },
+  { id: 'n7', title: 'KPI project day on 3 November', body: 'Final-year students present their projects in the main lecture hall. Everyone is welcome.', date: '2026-10-06', author: 'Department of Computers and Informatics', audience: 'all', scope: 'department' },
+  { id: 'n8', title: 'Lab 2 feedback is available', body: 'Written feedback on the edge detection lab is attached to each submission.', date: '2026-10-08', author: 'Dr. Lucia Bartošová', audience: 'all', scope: 'course', courseId: 'cv' },
 ]
 
 export const gradingQueue: GradingTask[] = [
@@ -345,9 +465,30 @@ export const roster: RosterStudent[] = [
   { id: 'S-24129', name: 'Michaela Oravcová' },
 ]
 
-/** Points collected so far, in roster order, and the maximum available so far. */
-export const rosterScores: Record<string, { max: number; points: number[] }> = {
-  ads2: { max: 50, points: [46, 38, 29, 44, 21, 41, 35, 18, 47, 33, 26, 40] },
-  swa: { max: 40, points: [34, 31, 22, 37, 19, 35, 28, 15, 36, 30, 24, 33] },
-  aml: { max: 30, points: [27, 22, 17, 25, 12, 24, 19, 11, 28, 21, 16, 23] },
+/**
+ * Points per student in roster order, for the first N components of the course scheme
+ * (a full row means the course is complete).
+ */
+export const rosterGrades: Record<string, number[][]> = {
+  ads2: [[19, 18], [16, 15], [12, 11], [18, 17], [9, 8], [17, 16], [14, 13], [8, 6], [19, 20], [13, 12], [11, 9], [17, 15]],
+  swa: [[18], [16], [11], [19], [9], [17], [14], [7], [18], [15], [12], [16]],
+  aml: [[27], [22], [17], [25], [12], [24], [19], [11], [28], [21], [16], [23]],
+  ads1: [[20, 19, 58], [17, 16, 54], [13, 12, 44], [19, 18, 56], [11, 10, 36], [18, 17, 55], [15, 14, 47], [12, 10, 40], [20, 20, 59], [15, 13, 45], [12, 11, 38], [18, 16, 52]],
 }
+
+const emailOf = (name: string) =>
+  `${name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z\s]/g, '').trim().replace(/\s+/g, '.')}@educore.example`
+
+const unitCode = (id: string) => orgUnits.find((u) => u.id === id)?.code ?? ''
+
+/** Directory shown on the admin Users page. */
+export const directory: DirectoryUser[] = [
+  { id: 'u-admin', name: users.admin.name, email: emailOf(users.admin.name), role: 'admin', unit: 'Study office', active: true },
+  ...teachers.map((t) => ({
+    id: `u-${t.id}`, name: `${t.title} ${t.name}`, email: emailOf(t.name), role: 'instructor' as const, unit: unitCode(t.orgUnitId), active: true,
+  })),
+  { id: 'u-eva', name: users.student.name, email: emailOf(users.student.name), role: 'student', unit: 'Applied Informatics', active: true },
+  ...roster.map((s, i) => ({
+    id: `u-${s.id}`, name: s.name, email: emailOf(s.name), role: 'student' as const, unit: i % 4 === 3 ? 'Informatics' : 'Applied Informatics', active: i !== 7,
+  })),
+]

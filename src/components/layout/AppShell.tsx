@@ -3,7 +3,7 @@ import type { RouteId } from '../../lib/router'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 
-export function AppShell({ route, children }: { route: RouteId; children: ReactNode }) {
+export function AppShell({ route, routeKey, children }: { route: RouteId; routeKey: string; children: ReactNode }) {
   const [navOpen, setNavOpen] = useState(false)
   const mainRef = useRef<HTMLElement>(null)
   const firstRender = useRef(true)
@@ -17,7 +17,7 @@ export function AppShell({ route, children }: { route: RouteId; children: ReactN
     }
     window.scrollTo(0, 0)
     mainRef.current?.focus({ preventScroll: true })
-  }, [route])
+  }, [routeKey])
 
   useEffect(() => {
     if (!navOpen) return
