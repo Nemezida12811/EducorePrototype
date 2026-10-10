@@ -1,0 +1,60 @@
+@import "tailwindcss";
+@import "@fontsource-variable/bricolage-grotesque";
+@import "@fontsource-variable/atkinson-hyperlegible-next";
+
+/*
+  EduCore palette (from the supplied swatches) plus three derived shades.
+  Contrast notes (WCAG): wine on blush/fog/rose >= 6:1, blush on wine >= 11:1.
+  Mauve is decorative only: wine text on mauve is 4.2:1, so never put body text there.
+*/
+@theme {
+  --color-blush: #f8dfd9;
+  --color-fog: #efefef;
+  --color-rose: #d5a8aa;
+  --color-mauve: #be8191;
+  --color-wine: #52202f;
+
+  --color-wine-deep: #3b1621; /* sidebar */
+  --color-wine-soft: #6a3041; /* hover on dark surfaces */
+  --color-ink-soft: #7a4455; /* secondary text on blush/fog (5.9:1) */
+
+  --font-display: "Bricolage Grotesque Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Atkinson Hyperlegible Next Variable", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-wine font-sans text-blush antialiased;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-display;
+  }
+
+  /* A two-tone ring stays visible on both wine and blush surfaces. */
+  :focus-visible {
+    outline: 2px solid var(--color-wine);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 5px var(--color-blush);
+    border-radius: 4px;
+  }
+}
+
+/* Layered panel: a solid offset block behind the surface, echoing stacked paper. */
+@utility layer-panel {
+  box-shadow: 8px 8px 0 0 var(--color-mauve);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
