@@ -5,7 +5,8 @@ import { DataTable, type Column } from '../components/ui/DataTable'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Panel } from '../components/ui/Panel'
 import { StatCard, StatGrid } from '../components/ui/StatCard'
-import { orgUnits, STUDENT_PROGRAM_ID, studyPlan, studyPrograms } from '../data/demo'
+import { STUDENT_PROGRAM_ID, studyPlan } from '../data/demo'
+import { useOrgUnits, usePrograms } from '../data/stores'
 import { getCourse } from '../data/selectors'
 import type { StudyPlanItem, Term } from '../data/types'
 import { gradeFor, summaryFor } from '../lib/grades'
@@ -13,6 +14,8 @@ import { useDemo } from '../state/DemoContext'
 
 export function StudyPlanPage() {
   const { enrolledIds, waitlistIds } = useDemo()
+  const orgUnits = useOrgUnits()
+  const studyPrograms = usePrograms()
   const program = studyPrograms.find((p) => p.id === STUDENT_PROGRAM_ID)!
   const unit = orgUnits.find((u) => u.id === program.orgUnitId)
 

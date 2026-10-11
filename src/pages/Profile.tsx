@@ -9,7 +9,7 @@ import { useDemo } from '../state/DemoContext'
 import { useMine } from '../state/useMine'
 
 const TYPES = ['New grade', 'Enrollment approved', 'Upcoming deadline', 'New notice']
-const ROLE_LABEL = { student: 'Student', instructor: 'Instructor', admin: 'Administrator' }
+const ROLE_LABEL = { student: 'Student', instructor: 'Instructor', admin: 'Administrator', superadmin: 'Super administrator' }
 const field = 'min-h-11 w-full rounded-md border-2 border-wine bg-fog px-3 text-wine'
 
 export function ProfilePage() {

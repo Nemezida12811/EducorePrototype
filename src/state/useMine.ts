@@ -1,10 +1,14 @@
 import { useMemo } from 'react'
-import { courses, exams, INSTRUCTOR_ID, sessions } from '../data/demo'
+import { INSTRUCTOR_ID } from '../data/demo'
+import { useCourses, useExams, useSessions } from '../data/stores'
 import { useDemo } from './DemoContext'
 
 /** Everything that belongs to the current role: courses, timetable, exams and visible notices. */
 export function useMine() {
   const { role, enrolledIds, notices, readNoticeIds } = useDemo()
+  const courses = useCourses()
+  const sessions = useSessions()
+  const exams = useExams()
 
   return useMemo(() => {
     const active = courses.filter((c) => !c.archived)
@@ -24,10 +28,11 @@ export function useMine() {
     return {
       ids,
       courses: mineCourses,
-      sessions: sessions.filter((s) => ids.has(s.courseId)),
+      // Teachers see the sessions they run; students and admins see every session of their courses.
+      sessions: sessions.filter((s) => ids.has(s.courseId) && (role !== 'instructor' || s.teacherId === INSTRUCTOR_ID)),
       exams: exams.filter((e) => ids.has(e.courseId)).sort((a, b) => a.date.localeCompare(b.date)),
       notices: visibleNotices,
       unread: visibleNotices.filter((n) => !readNoticeIds.has(n.id)).length,
     }
-  }, [role, enrolledIds, notices, readNoticeIds])
+  }, [role, enrolledIds, notices, readNoticeIds, courses, sessions, exams])
 }

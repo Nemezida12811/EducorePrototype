@@ -1,6 +1,7 @@
 import type {
   ClassSession,
   Course,
+  CourseDocument,
   DemoUser,
   DirectoryUser,
   Day,
@@ -9,6 +10,7 @@ import type {
   GradingTask,
   Holiday,
   Notice,
+  PlatformSettings,
   OrgUnit,
   Role,
   RosterStudent,
@@ -37,6 +39,7 @@ export const users: Record<Role, DemoUser> = {
   student: { name: 'Eva Nováková', initials: 'EN', detail: 'Applied Informatics, year 3' },
   instructor: { name: 'Peter Horváth', initials: 'PH', detail: 'Associate professor, Informatics' },
   admin: { name: 'Mária Szabová', initials: 'MS', detail: 'Study office administrator' },
+  superadmin: { name: 'Jakub Lenárt', initials: 'JL', detail: 'Platform operator' },
 }
 
 export const INSTRUCTOR_ID = 't1'
@@ -68,7 +71,7 @@ export const teachers: Teacher[] = [
 ]
 
 type CourseMeta = Pick<Course, 'orgUnitId' | 'completionType' | 'gradingScheme' | 'guarantorId' | 'topics'>
-type BaseCourse = Omit<Course, keyof CourseMeta>
+type BaseCourse = Omit<Course, keyof CourseMeta | 'prerequisiteIds'>
 
 const scheme = (...pairs: [string, number][]): GradingComponent[] => pairs.map(([name, max]) => ({ name, max }))
 
@@ -340,12 +343,16 @@ const baseCourses: BaseCourse[] = [
   },
 ]
 
-export const courses: Course[] = baseCourses.map((c) => ({ ...c, ...courseMeta[c.id] }))
+const prerequisites: Record<string, string[]> = {
+  ads2: ['ads1'], cv: ['dm'], ddb: ['os'], swa: ['oop'], aml: ['ps'], sig: ['dm'], os: ['oop'], ps: ['dm'],
+}
+
+export const courses: Course[] = baseCourses.map((c) => ({ ...c, ...courseMeta[c.id], prerequisiteIds: prerequisites[c.id] ?? [] }))
 
 /** Courses the demo student is enrolled in at load time. */
 export const studentEnrolledIds = ['ads2', 'cv', 'ddb', 'swa', 'aml', 'een']
 
-export const sessions: ClassSession[] = [
+const baseSessions: Omit<ClassSession, 'teacherId'>[] = [
   { id: 's1', courseId: 'ads2', day: 'Mon', start: '08:00', end: '09:40', type: 'Lecture', room: 'A-112' },
   { id: 's2', courseId: 'swa', day: 'Mon', start: '10:00', end: '11:40', type: 'Lecture', room: 'B-129' },
   { id: 's3', courseId: 'cv', day: 'Mon', start: '13:00', end: '14:40', type: 'Lab', room: 'L-04' },
@@ -360,6 +367,14 @@ export const sessions: ClassSession[] = [
   { id: 's12', courseId: 'aml', day: 'Thu', start: '14:00', end: '15:40', type: 'Lab', room: 'L-02' },
   { id: 's13', courseId: 'emb', day: 'Fri', start: '09:00', end: '10:40', type: 'Lab', room: 'L-08' },
 ]
+
+/** Sessions are run by the course guarantor unless listed here. */
+const sessionTeacher: Record<string, string> = { s12: 't2' }
+
+export const sessions: ClassSession[] = baseSessions.map((x) => ({
+  ...x,
+  teacherId: sessionTeacher[x.id] ?? courses.find((c) => c.id === x.courseId)!.guarantorId,
+}))
 
 export const exams: Exam[] = [
   { id: 'e1', courseId: 'ads2', date: '2027-01-13', start: '09:00', room: 'A-112', format: 'Written', term: 'Term 1', capacity: 120, registered: 64, registration: 'open' },
@@ -485,10 +500,27 @@ const unitCode = (id: string) => orgUnits.find((u) => u.id === id)?.code ?? ''
 export const directory: DirectoryUser[] = [
   { id: 'u-admin', name: users.admin.name, email: emailOf(users.admin.name), role: 'admin', unit: 'Study office', active: true },
   ...teachers.map((t) => ({
-    id: `u-${t.id}`, name: `${t.title} ${t.name}`, email: emailOf(t.name), role: 'instructor' as const, unit: unitCode(t.orgUnitId), active: true,
+    id: `u-${t.id}`, name: `${t.title} ${t.name}`, email: emailOf(t.name), role: 'instructor' as const, unit: unitCode(t.orgUnitId), active: true, teacherId: t.id,
   })),
   { id: 'u-eva', name: users.student.name, email: emailOf(users.student.name), role: 'student', unit: 'Applied Informatics', active: true },
   ...roster.map((s, i) => ({
     id: `u-${s.id}`, name: s.name, email: emailOf(s.name), role: 'student' as const, unit: i % 4 === 3 ? 'Informatics' : 'Applied Informatics', active: i !== 7,
   })),
 ]
+
+export const documents: CourseDocument[] = [
+  { id: 'd1', courseId: 'ads2', name: 'ADS2-syllabus.pdf', kind: 'Syllabus', sizeKb: 184, uploadedAt: '2026-09-08' },
+  { id: 'd2', courseId: 'ads2', name: 'Lecture-1-graph-basics.pdf', kind: 'Material', sizeKb: 920, uploadedAt: '2026-09-15' },
+  { id: 'd3', courseId: 'cv', name: 'CV-syllabus.pdf', kind: 'Syllabus', sizeKb: 152, uploadedAt: '2026-09-09' },
+  { id: 'd4', courseId: 'ddb', name: 'DDB-syllabus.pdf', kind: 'Syllabus', sizeKb: 167, uploadedAt: '2026-09-09' },
+  { id: 'd5', courseId: 'swa', name: 'SWA-syllabus.pdf', kind: 'Syllabus', sizeKb: 141, uploadedAt: '2026-09-10' },
+  { id: 'd6', courseId: 'aml', name: 'AML-syllabus.pdf', kind: 'Syllabus', sizeKb: 175, uploadedAt: '2026-09-10' },
+  { id: 'd7', courseId: 'oop', name: 'OOP-syllabus.pdf', kind: 'Syllabus', sizeKb: 133, uploadedAt: '2025-09-12' },
+]
+
+export const platform: PlatformSettings = {
+  userLimit: 5000,
+  usersUsed: 4312,
+  storageLimitGb: 250,
+  storageUsedGb: 118.4,
+}

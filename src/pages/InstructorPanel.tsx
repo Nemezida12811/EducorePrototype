@@ -6,11 +6,12 @@ import { PageHeader } from '../components/ui/PageHeader'
 import { Panel } from '../components/ui/Panel'
 import { ProgressBar } from '../components/ui/ProgressBar'
 import { StatCard, StatGrid } from '../components/ui/StatCard'
-import { gradingQueue, roster, rosterGrades } from '../data/demo'
+import { gradingQueue, roster } from '../data/demo'
+import { useRosterGrades } from '../data/stores'
 import { getCourse, teacherNames } from '../data/selectors'
 import type { RosterStudent } from '../data/types'
 import { formatDate, percent } from '../lib/format'
-import { padRow, summarize } from '../lib/grades'
+import { summarize } from '../lib/grades'
 import { courseHref } from '../lib/router'
 import { useMine } from '../state/useMine'
 
@@ -18,14 +19,16 @@ type Row = RosterStudent & { total: number; graded: number }
 
 export function InstructorPanelPage() {
   const taught = useMine().courses
+  const grades = useRosterGrades()
   const [courseId, setCourseId] = useState(taught[0].id)
   const selectId = useId()
   const course = getCourse(courseId)
 
   const rowsFor = (id: string): Row[] => {
     const c = getCourse(id)
+    if (!grades[id]) return []
     return roster.map((s, i) => {
-      const sum = summarize(c.gradingScheme, padRow(rosterGrades[id][i], c.gradingScheme.length))
+      const sum = summarize(c.gradingScheme, grades[id][i])
       return { ...s, total: sum.total, graded: sum.graded }
     })
   }
@@ -34,7 +37,7 @@ export function InstructorPanelPage() {
   const students = taught.reduce((sum, c) => sum + c.enrolled, 0)
   const submissions = gradingQueue.reduce((sum, g) => sum + g.submissions, 0)
   const all = taught.flatMap((c) => rowsFor(c.id).map((r) => percent(r.total, r.graded)))
-  const classAverage = Math.round(all.reduce((a, b) => a + b, 0) / all.length)
+  const classAverage = all.length === 0 ? 0 : Math.round(all.reduce((a, b) => a + b, 0) / all.length)
 
   const columns: Column<Row>[] = [
     {
@@ -59,7 +62,7 @@ export function InstructorPanelPage() {
     {
       header: 'Status',
       align: 'right',
-      cell: (s) => (s.total / s.graded >= 0.5 ? <Badge tone="soft">On track</Badge> : <Badge tone="solid">Needs attention</Badge>),
+      cell: (s) => (s.graded === 0 || s.total / s.graded >= 0.5 ? <Badge tone="soft">On track</Badge> : <Badge tone="solid">Needs attention</Badge>),
     },
   ]
 

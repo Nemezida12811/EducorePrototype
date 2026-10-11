@@ -1,4 +1,4 @@
-import { Award, BookOpen, CalendarClock, ClipboardCheck, Download, FileCheck2, GraduationCap, Percent, Users } from 'lucide-react'
+import { Award, BookOpen, CalendarClock, ClipboardCheck, Download, FileCheck2, GraduationCap, HardDrive, Percent, Users } from 'lucide-react'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { CourseLink } from '../components/ui/CourseLink'
@@ -9,17 +9,14 @@ import { Panel } from '../components/ui/Panel'
 import { ProgressBar } from '../components/ui/ProgressBar'
 import { StatCard, StatGrid } from '../components/ui/StatCard'
 import {
-  courses,
   DEMO_DAY,
   DEMO_DAY_LONG,
   degree,
   gradingQueue,
-  orgUnits,
   studentGrades,
-  studyPrograms,
-  teachers,
   users,
 } from '../data/demo'
+import { useCourses, useOrgUnits, usePlatform, usePrograms, useTeachers } from '../data/stores'
 import { getCourse, teacherNames } from '../data/selectors'
 import type { Course } from '../data/types'
 import { upcomingKeyDates } from '../lib/calendar'
@@ -34,7 +31,8 @@ export function DashboardPage() {
   const { role } = useDemo()
   if (role === 'student') return <StudentDashboard />
   if (role === 'instructor') return <InstructorDashboard />
-  return <AdminDashboard />
+  if (role === 'admin') return <AdminDashboard />
+  return <SuperAdminDashboard />
 }
 
 function PanelLink({ to, children }: { to: RouteId; children: string }) {
@@ -194,6 +192,10 @@ function InstructorDashboard() {
 
 function AdminDashboard() {
   const { seatsTaken } = useDemo()
+  const courses = useCourses()
+  const teachers = useTeachers()
+  const orgUnits = useOrgUnits()
+  const studyPrograms = usePrograms()
   const active = courses.filter((c) => !c.archived)
   const taken = active.reduce((s, c) => s + seatsTaken(c), 0)
   const limit = active.reduce((s, c) => s + c.studentLimit, 0)
@@ -273,6 +275,48 @@ function AdminDashboard() {
     </>
   )
 }
+
+function SuperAdminDashboard() {
+  const platform = usePlatform()
+  const courses = useCourses()
+  const teachers = useTeachers()
+  const active = courses.filter((c) => !c.archived).length
+
+  return (
+    <>
+      <PageHeader
+        title={`Hello, ${users_name()}`}
+        description="Platform overview: users, storage and limits."
+      />
+      <StatGrid>
+        <StatCard label="Users" value={platform.usersUsed.toLocaleString('en-GB')} hint={`Limit ${platform.userLimit.toLocaleString('en-GB')}`} icon={Users} />
+        <StatCard label="Storage used" value={`${Math.round(platform.storageUsedGb)} GB`} hint={`Limit ${platform.storageLimitGb} GB`} icon={HardDrive} />
+        <StatCard label="Active courses" value={String(active)} hint={`${courses.length - active} archived`} icon={BookOpen} />
+        <StatCard label="Teachers" value={String(teachers.length)} hint="With a teaching account" icon={GraduationCap} />
+      </StatGrid>
+      <Panel title="Limits" action={<PanelLink to="platform">Edit limits</PanelLink>}>
+        <ul className="flex flex-col gap-5">
+          <li>
+            <div className="mb-2 flex justify-between gap-3">
+              <span className="font-semibold">Users</span>
+              <span>{platform.usersUsed.toLocaleString('en-GB')} of {platform.userLimit.toLocaleString('en-GB')}</span>
+            </div>
+            <ProgressBar value={platform.usersUsed} max={platform.userLimit} label="User usage" />
+          </li>
+          <li>
+            <div className="mb-2 flex justify-between gap-3">
+              <span className="font-semibold">Storage</span>
+              <span>{platform.storageUsedGb} of {platform.storageLimitGb} GB</span>
+            </div>
+            <ProgressBar value={platform.storageUsedGb} max={platform.storageLimitGb} label="Storage usage" />
+          </li>
+        </ul>
+      </Panel>
+    </>
+  )
+}
+
+const users_name = () => users.superadmin.name.split(' ')[0]
 
 function TodayPanel() {
   const mine = useMine()

@@ -1,4 +1,5 @@
 import { studentGrades } from '../data/demo'
+import { getCourse } from '../data/selectors'
 import type { Course, GradingComponent, Mark, StudentGrade } from '../data/types'
 
 /** Slovak ECTS-style scale on the 0 to 100 final score. */
@@ -47,4 +48,16 @@ export const gradeFor = (courseId: string): StudentGrade | undefined =>
 
 export function summaryFor(course: Course, grade: StudentGrade | undefined): GradeSummary {
   return summarize(course.gradingScheme, grade ? grade.entries.map((e) => e.points) : course.gradingScheme.map(() => null))
+}
+
+/** Courses the demo student has passed (all components graded, mark above FX). */
+export function completedCourseIds(): Set<string> {
+  return new Set(
+    studentGrades
+      .filter((g) => {
+        const s = summaryFor(getCourse(g.courseId), g)
+        return s.complete && s.mark !== 'FX'
+      })
+      .map((g) => g.courseId),
+  )
 }

@@ -1,4 +1,4 @@
-export type Role = 'student' | 'instructor' | 'admin'
+export type Role = 'student' | 'instructor' | 'admin' | 'superadmin'
 export type Day = 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri'
 export type Mark = 'A' | 'B' | 'C' | 'D' | 'E' | 'FX'
 export type Term = 'Winter' | 'Summer'
@@ -52,6 +52,8 @@ export interface Course {
   gradingScheme: GradingComponent[]
   guarantorId: string
   topics: string[]
+  /** Courses that must be completed before enrolling. */
+  prerequisiteIds: string[]
 }
 
 export type SessionType = 'Lecture' | 'Practical' | 'Lab' | 'Seminar'
@@ -64,6 +66,8 @@ export interface ClassSession {
   end: string
   type: SessionType
   room: string
+  /** The teacher who runs this session. */
+  teacherId: string
 }
 
 export interface Exam {
@@ -149,10 +153,31 @@ export interface DirectoryUser {
   role: Role
   unit: string
   active: boolean
+  /** Set for users who teach: links the account to a Teacher. */
+  teacherId?: string
 }
 
 export interface DemoUser {
   name: string
   initials: string
   detail: string
+}
+
+export interface CourseDocument {
+  id: string
+  courseId: string
+  name: string
+  kind: 'Syllabus' | 'Material'
+  sizeKb: number
+  uploadedAt: string
+  /** Only for files added during this session. */
+  url?: string
+}
+
+/** Platform-wide limits and usage (one institution, no plans). */
+export interface PlatformSettings {
+  userLimit: number
+  usersUsed: number
+  storageLimitGb: number
+  storageUsedGb: number
 }

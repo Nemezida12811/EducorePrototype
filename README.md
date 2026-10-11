@@ -21,39 +21,60 @@ npm run typecheck  # types only
 
 ## Roles
 
-Use the **Student / Instructor / Admin** toggle in the top bar. Pages a role cannot see redirect to
-the dashboard.
+Use the role switcher in the top bar (Student, Instructor, Admin, Super admin). Pages a role cannot see
+redirect to the dashboard.
 
-| Page             | Student                                         | Instructor                                 | Admin                              |
-| ---------------- | ----------------------------------------------- | ------------------------------------------ | ---------------------------------- |
-| Dashboard        | Credits, average, today's classes, results      | Courses, students, grading queue           | Occupancy report, CSV export       |
-| Courses          | Enrolled, catalog, archived                     | Teaching, all active, archived             | Active, archived                   |
-| Course detail    | Info, own grades, enroll / withdraw / waitlist  | Info, student grades and distribution      | Info (grades hidden)               |
-| Study plan       | Plan by year and semester with live status      | -                                          | -                                  |
-| Grades           | Final marks, semester results, mark scale       | -                                          | -                                  |
-| Schedule         | Own timetable, .ics export                      | Teaching timetable, .ics export            | Institution timetable              |
-| Exams            | Register and cancel                             | Terms with registration counts             | Terms with registration counts     |
-| Calendar         | Semesters, key dates, holidays                  | same                                       | same                               |
-| Notices          | Inbox, read / unread, filters                   | Inbox and publish a notice                 | Inbox and publish a notice         |
-| Instructor panel | -                                               | Roster, course details, grading queue      | -                                  |
-| Users            | -                                               | -                                          | Accounts, activate / deactivate    |
-| Organization     | -                                               | -                                          | Faculty, departments, programs     |
-| Profile          | Contact details, notification choices, data export (JSON)                                              |
+| Page             | Student                          | Instructor                           | Admin                                  | Super admin            |
+| ---------------- | -------------------------------- | ------------------------------------ | -------------------------------------- | ---------------------- |
+| Dashboard        | Credits, average, today          | Courses, students, grading queue     | Occupancy report, CSV export           | Users, storage, courses |
+| Courses          | Enrolled, catalog, archived      | Teaching, all, archived, new course  | Active, archived, new course           | -                      |
+| Course detail    | Info, own grades, enroll         | Info, grades, exams, edit course     | Info, manage any course                | -                      |
+| Study plan       | Plan with live status            | -                                    | -                                      | -                      |
+| Grades           | Final marks, semester results    | -                                    | -                                      | -                      |
+| Schedule, Exams  | Own                              | Sessions they run, add exams         | Institution-wide, add exams            | -                      |
+| Calendar         | yes                              | yes                                  | yes                                    | -                      |
+| Notices          | Inbox                            | Inbox, publish                       | Inbox, publish                         | -                      |
+| Instructor panel | -                                | Roster, grading queue                | -                                      | -                      |
+| Users            | -                                | -                                    | Create, edit, change role, deactivate  | -                      |
+| Organization     | -                                | -                                    | Departments and study programs         | -                      |
+| Platform         | -                                | -                                    | -                                      | Usage and limits       |
+| Profile          | Contact details, notification choices, data export (all roles)                                                             |
 
-Every course, active or archived, opens at `#/courses/<id>` (for example `#/courses/ads2` or
-`#/courses/oop`). Grades follow the domain model: one grade per course made of components from the
-course's grading scheme, with a final score from 0 to 100 and a mark derived from it (A to FX).
+Every course, active or archived, opens at `#/courses/<id>` (for example `#/courses/ads2` or `#/courses/oop`).
+
+## Management features (all in memory, reset on reload)
+
+- **Users and roles (FR-2.1, 2.2):** admins create and edit accounts, change a user's role and deactivate
+  accounts. A new teacher also becomes selectable as a course teacher. Admins cannot deactivate or demote themselves.
+- **Departments and programs (FR-2.3):** admins add and edit departments and study programs.
+- **Platform limits (FR-2.5):** the super admin sees users and storage in use and sets the platform-wide limits.
+  There are no plans and no per-institution split; limits cannot be set below current usage.
+- **Courses (FR-3.1, 3.2):** teachers and admins create a course with capacity, syllabus topics, department,
+  guarantor, teachers and a grading scheme, and edit it later (teachers only for courses they teach).
+- **Timetable (FR-3.3):** in *Edit course*, teachers and admins add lectures, practicals, labs and seminars, set the
+  day and time, room, and assign one of the course's teachers to each session. Teachers see the sessions they run in their schedule.
+- **Exam terms:** teachers and admins add and remove exam terms from the Exams page or from a course page
+  (date, time, room, format, term, capacity, registration open or closed). Students see them right away.
+- **Prerequisites (FR-3.4):** shown on the course page; students cannot enroll until they have passed them.
+- **Documents (FR-3.5):** teachers and admins add PDFs (up to 10 MB) as syllabus or material. Files stay in the browser.
+- **Archive (FR-3.6):** archiving keeps grades and history; courses can be restored.
+- **Grading (FR-5.1):** teachers enter component points per student. When every component has points the total
+  becomes the final score and the mark (A to FX) is set. Archived courses are read-only.
+
+Grades follow the domain model: one grade per course, made of components from the course's grading scheme,
+with a final score from 0 to 100 and a mark derived from it.
 
 ## Structure
 
 ```
 src/
-  data/        types.ts, demo.ts (all static data), selectors.ts
+  data/        types.ts, demo.ts (seed data), stores.ts (editable in-memory state), selectors.ts
   lib/         format.ts, grades.ts (marks, totals), calendar.ts (key dates, .ics),
                download.ts (CSV and file saving), router.ts (tiny hash router)
   state/       DemoContext.tsx (role, enrollment, exams, notices), useMine.ts (per-role views)
   components/
     layout/    AppShell, Sidebar, TopBar, RoleToggle
+    forms/     CourseForm
     ui/        Panel, StatCard, DataTable, CourseCard, CourseLink, Badge, ProgressBar, Button, ...
   pages/       one file per page
   nav.ts       navigation items and which roles see them

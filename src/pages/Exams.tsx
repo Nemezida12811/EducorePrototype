@@ -1,4 +1,7 @@
 import { useState } from 'react'
+import { Plus, Trash2 } from 'lucide-react'
+import { ExamForm } from '../components/forms/ExamForm'
+import { examsStore } from '../data/stores'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { DataTable, type Column } from '../components/ui/DataTable'
@@ -26,7 +29,8 @@ const courseCell = (e: Exam) => {
 export function ExamsPage() {
   const { role, registeredExamIds, toggleExamRegistration } = useDemo()
   const [message, setMessage] = useState('')
-  const { exams } = useMine()
+  const { exams, courses } = useMine()
+  const [adding, setAdding] = useState(false)
   const student = role === 'student'
 
   const onToggle = (exam: Exam) => {
@@ -107,6 +111,20 @@ export function ExamsPage() {
       align: 'right',
       cell: (e) => <Badge tone={e.registration === 'open' ? 'solid' : 'outline'}>{e.registration === 'open' ? 'Open' : 'Closed'}</Badge>,
     },
+    {
+      header: 'Actions',
+      align: 'right',
+      cell: (e) => (
+        <Button
+          variant="secondary"
+          className="min-h-9 px-2"
+          onClick={() => examsStore.set((prev) => prev.filter((x) => x.id !== e.id))}
+          aria-label={`Remove ${getCourse(e.courseId).name}, ${e.term}, ${formatWeekdayDate(e.date)}`}
+        >
+          <Trash2 aria-hidden="true" className="size-4" />
+        </Button>
+      ),
+    },
   ]
 
   return (
@@ -121,7 +139,25 @@ export function ExamsPage() {
               : 'All exam terms of the institution and how many students have registered.'
         }
       />
-      <Panel title="Winter exam period" flush>
+      {!student && adding && (
+        <div className="mb-10">
+          <Panel title="New exam term">
+            <ExamForm courses={courses} onDone={() => setAdding(false)} />
+          </Panel>
+        </div>
+      )}
+      <Panel
+        title="Winter exam period"
+        flush
+        action={
+          !student && !adding ? (
+            <Button variant="secondary" onClick={() => setAdding(true)}>
+              <Plus aria-hidden="true" className="mr-2 size-4" />
+              New exam term
+            </Button>
+          ) : undefined
+        }
+      >
         <DataTable
           caption="Exam terms"
           columns={student ? studentColumns : instructorColumns}

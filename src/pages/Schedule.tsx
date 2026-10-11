@@ -8,6 +8,7 @@ import { DEMO_DAY, semesterLabel } from '../data/demo'
 import type { Day, SessionType } from '../data/types'
 import { scheduleToIcs } from '../lib/calendar'
 import { downloadFile } from '../lib/download'
+import { teacherName } from '../data/selectors'
 import { useDemo } from '../state/DemoContext'
 import { useMine } from '../state/useMine'
 
@@ -76,6 +77,7 @@ export function SchedulePage() {
                         <p className="text-sm text-ink-soft">
                           {s.type}, room {s.room}
                         </p>
+                        {role !== 'instructor' && <p className="text-sm text-ink-soft">{teacherName(s.teacherId)}</p>}
                       </li>
                     ))}
                   </ul>
