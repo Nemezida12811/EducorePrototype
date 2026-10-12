@@ -1,14 +1,15 @@
-import { Download } from 'lucide-react'
+import { CheckCircle2, Download, TriangleAlert } from 'lucide-react'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { CourseLink } from '../components/ui/CourseLink'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Panel } from '../components/ui/Panel'
 import { DEMO_DAY, semesterLabel } from '../data/demo'
-import type { Day, SessionType } from '../data/types'
+import type { ClassSession, Day, SessionType } from '../data/types'
 import { scheduleToIcs } from '../lib/calendar'
 import { downloadFile } from '../lib/download'
-import { teacherName } from '../data/selectors'
+import { getCourse, teacherName } from '../data/selectors'
+import { internalClashes, slotLabel } from '../lib/conflicts'
 import { useDemo } from '../state/DemoContext'
 import { useMine } from '../state/useMine'
 
@@ -48,6 +49,7 @@ export function SchedulePage() {
           </Button>
         }
       />
+      <ScheduleCheck sessions={sessions} mode={role === 'admin' ? 'resources' : 'any'} />
       <Panel title="Week">
         <ol className="divide-y divide-rose">
           {DAYS.map((day) => {
@@ -88,5 +90,38 @@ export function SchedulePage() {
         </ol>
       </Panel>
     </>
+  )
+}
+
+function ScheduleCheck({ sessions, mode }: { sessions: ClassSession[]; mode: 'any' | 'resources' }) {
+  const clashes = internalClashes(sessions, mode)
+  const line = (s: ClassSession) => `${getCourse(s.courseId).name}, ${slotLabel(s)}, room ${s.room}, ${teacherName(s.teacherId)}`
+  return (
+    <div className="mb-10">
+      <Panel title="Schedule check">
+        {clashes.length === 0 ? (
+          <p className="flex items-center gap-2 font-semibold">
+            <CheckCircle2 aria-hidden="true" className="size-5 shrink-0" />
+            {mode === 'resources' ? 'No room or teacher is double-booked.' : 'No overlapping sessions.'}
+          </p>
+        ) : (
+          <>
+            <p className="mb-3 flex items-center gap-2 font-semibold" role="alert">
+              <TriangleAlert aria-hidden="true" className="size-5 shrink-0" />
+              {clashes.length} {clashes.length === 1 ? 'clash' : 'clashes'} found
+            </p>
+            <ul className="divide-y divide-rose">
+              {clashes.map((c) => (
+                <li key={`${c.a.id}-${c.b.id}`} className="py-3 first:pt-0 last:pb-0">
+                  <p className="font-semibold">{c.why}</p>
+                  <p className="text-sm text-ink-soft">{line(c.a)}</p>
+                  <p className="text-sm text-ink-soft">{line(c.b)}</p>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </Panel>
+    </div>
   )
 }

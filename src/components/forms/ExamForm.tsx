@@ -2,6 +2,9 @@ import { useState } from 'react'
 import { Button } from '../ui/Button'
 import { SelectField, TextField } from '../ui/Field'
 import { examsStore } from '../../data/stores'
+import { examsOverlap, sameRoom } from '../../lib/conflicts'
+import { getCourse } from '../../data/selectors'
+import { formatWeekdayDate } from '../../lib/format'
 import type { Course, Exam } from '../../data/types'
 
 interface ExamFormProps {
@@ -30,6 +33,10 @@ export function ExamForm({ courses, fixedCourseId, onDone }: ExamFormProps) {
     if (!date) return setError('Choose a date.')
     if (!room.trim()) return setError('Enter a room.')
     if (!Number.isInteger(cap) || cap < 1 || cap > 500) return setError('Capacity must be a whole number from 1 to 500.')
+    const clash = examsStore.get().find((x) => sameRoom(x.room, room) && examsOverlap(x, { date, start }))
+    if (clash) return setError(`Room ${room.trim()} is already booked for ${getCourse(clash.courseId).code} on ${formatWeekdayDate(clash.date)} at ${clash.start} (exams last about two hours).`)
+    const sameCourse = examsStore.get().find((x) => x.courseId === courseId && examsOverlap(x, { date, start }))
+    if (sameCourse) return setError('This course already has an exam term at that time.')
     examsStore.set((prev) => [
       ...prev,
       { id: `e-${Date.now()}`, courseId, date, start, room: room.trim(), format, term, capacity: cap, registered: 0, registration },

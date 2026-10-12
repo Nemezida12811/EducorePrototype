@@ -13,6 +13,7 @@ import { getCourse } from '../data/selectors'
 import { useMine } from '../state/useMine'
 import { CourseLink } from '../components/ui/CourseLink'
 import type { Exam } from '../data/types'
+import { examsOverlap } from '../lib/conflicts'
 import { formatWeekdayDate } from '../lib/format'
 import { useDemo } from '../state/DemoContext'
 
@@ -35,6 +36,13 @@ export function ExamsPage() {
 
   const onToggle = (exam: Exam) => {
     const name = getCourse(exam.courseId).name
+    if (!registeredExamIds.has(exam.id)) {
+      const clash = exams.find((x) => x.id !== exam.id && registeredExamIds.has(x.id) && examsOverlap(x, exam))
+      if (clash) {
+        setMessage(`Cannot register for ${name}: it overlaps ${getCourse(clash.courseId).name} on ${formatWeekdayDate(clash.date)} at ${clash.start}.`)
+        return
+      }
+    }
     setMessage(registeredExamIds.has(exam.id) ? `Registration cancelled for ${name}.` : `Registered for ${name}.`)
     toggleExamRegistration(exam.id)
   }
@@ -165,7 +173,7 @@ export function ExamsPage() {
           getKey={(e) => e.id}
         />
       </Panel>
-      <p className="sr-only" role="status" aria-live="polite">
+      <p className="mt-4 text-rose empty:hidden" role="status" aria-live="polite">
         {message}
       </p>
     </>

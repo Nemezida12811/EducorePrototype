@@ -12,7 +12,7 @@ import { Panel } from '../components/ui/Panel'
 import { ProgressBar } from '../components/ui/ProgressBar'
 import { StatCard, StatGrid } from '../components/ui/StatCard'
 import { DEMO_TODAY, INSTRUCTOR_ID, roster } from '../data/demo'
-import { findCourse, teacherName, teacherNames } from '../data/selectors'
+import { findCourse, getCourse, teacherName, teacherNames } from '../data/selectors'
 import {
   coursesStore,
   documentsStore,
@@ -26,6 +26,7 @@ import {
   useSessions,
 } from '../data/stores'
 import type { ClassSession, Course, Mark } from '../data/types'
+import { slotLabel, sessionsOverlap } from '../lib/conflicts'
 import { formatDate, formatWeekdayDate, percent } from '../lib/format'
 import { completedCourseIds, gradeFor, SCALE, summarize, summaryFor } from '../lib/grades'
 import { hrefFor } from '../lib/router'
@@ -59,7 +60,8 @@ function BackLink() {
 function CourseDetail({ course }: { course: Course }) {
   const { role, enrolledIds, waitlistIds, seatsTaken, toggleEnrollment } = useDemo()
   const units = useOrgUnits()
-  const sessions = useSessions().filter((s) => s.courseId === course.id)
+  const allSessions = useSessions()
+  const sessions = allSessions.filter((s) => s.courseId === course.id)
   const [editing, setEditing] = useState(false)
   const [addingExam, setAddingExam] = useState(false)
   const [message, setMessage] = useState('')
@@ -76,7 +78,14 @@ function CourseDetail({ course }: { course: Course }) {
 
   const done = completedCourseIds()
   const unmet = course.prerequisiteIds.filter((id) => !done.has(id))
-  const blocked = role === 'student' && !enrolled && !waitlisted && unmet.length > 0
+  // Schedule check: does any session of this course overlap a session of a course the student is already in?
+  const enrolledSessions = allSessions.filter(
+    (x) => x.courseId !== course.id && enrolledIds.has(x.courseId) && !findCourse(x.courseId)?.archived,
+  )
+  const clash = sessions
+    .flatMap((mine) => enrolledSessions.filter((other) => sessionsOverlap(mine, other)).map((other) => ({ mine, other })))
+    .at(0)
+  const blocked = role === 'student' && !enrolled && !waitlisted && (unmet.length > 0 || clash !== undefined)
 
   const setArchived = (archived: boolean) => {
     coursesStore.set((prev) => prev.map((c) => (c.id === course.id ? { ...c, archived } : c)))
@@ -106,7 +115,12 @@ function CourseDetail({ course }: { course: Course }) {
             <Button disabled={blocked} onClick={() => toggleEnrollment(course.id)}>
               {enrolled ? 'Withdraw from course' : waitlisted ? 'Leave waitlist' : full ? 'Join waitlist' : 'Enroll'}
             </Button>
-            {blocked && (
+            {role === 'student' && !enrolled && !waitlisted && clash && (
+              <p className="text-sm" role="alert">
+                Schedule clash: {slotLabel(clash.mine)} ({clash.mine.type}) overlaps {getCourse(clash.other.courseId).name}, {slotLabel(clash.other)}.
+              </p>
+            )}
+            {blocked && unmet.length > 0 && (
               <p className="text-sm">
                 Complete first: {unmet.map((id, i) => (
                   <span key={id}>{i > 0 && ', '}<CourseLink courseId={id} /></span>

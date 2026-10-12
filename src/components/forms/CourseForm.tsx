@@ -5,6 +5,8 @@ import { Panel } from '../ui/Panel'
 import { INSTRUCTOR_ID } from '../../data/demo'
 import { coursesStore, sessionsStore, useCourses, useOrgUnits, useSessions, useTeachers } from '../../data/stores'
 import type { ClassSession, CompletionType, Course, Day, GradingComponent, SessionType } from '../../data/types'
+import { sameRoom, sessionsOverlap, slotLabel } from '../../lib/conflicts'
+import { teacherName } from '../../data/selectors'
 import { useDemo } from '../../state/DemoContext'
 
 const PRESETS: Record<string, { label: string; scheme: GradingComponent[]; completion: CompletionType }> = {
@@ -78,6 +80,23 @@ export function CourseForm({ initial, onDone }: CourseFormProps) {
     for (const [i, d] of drafts.entries()) {
       if (!d.room.trim()) return setError(`Session ${i + 1}: enter a room.`)
       if (d.end <= d.start) return setError(`Session ${i + 1}: the end time must be after the start time.`)
+    }
+    // Schedule check: a teacher or a room cannot be in two places at once.
+    const others = existingSessions.filter((x) => x.courseId !== initial?.id)
+    for (const [i, d] of drafts.entries()) {
+      const teacher = sessionTeachers.includes(d.teacherId) ? d.teacherId : guarantor
+      for (const [j, e] of drafts.entries()) {
+        if (j <= i || !sessionsOverlap(d, e)) continue
+        const eTeacher = sessionTeachers.includes(e.teacherId) ? e.teacherId : guarantor
+        if (teacher === eTeacher) return setError(`Sessions ${i + 1} and ${j + 1} overlap and have the same teacher (${teacherName(teacher)}).`)
+        if (sameRoom(d.room, e.room)) return setError(`Sessions ${i + 1} and ${j + 1} overlap in room ${d.room.trim()}.`)
+      }
+      for (const o of others) {
+        if (!sessionsOverlap(d, o)) continue
+        const label = `${all.find((c) => c.id === o.courseId)?.code ?? 'another course'} on ${slotLabel(o)}`
+        if (o.teacherId === teacher) return setError(`Session ${i + 1}: ${teacherName(teacher)} already teaches ${label}.`)
+        if (sameRoom(o.room, d.room)) return setError(`Session ${i + 1}: room ${d.room.trim()} is already booked by ${label}.`)
+      }
     }
     const saveSessions = (courseId: string) =>
       sessionsStore.set((prev) => [
