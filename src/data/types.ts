@@ -68,6 +68,10 @@ export interface ClassSession {
   room: string
   /** The teacher who runs this session. */
   teacherId: string
+  /** Practical groups (anything but a lecture): label such as "A", seat capacity and seats taken. */
+  group?: string
+  capacity?: number
+  taken?: number
 }
 
 export interface Exam {
@@ -120,7 +124,7 @@ export interface Holiday {
   title: string
 }
 
-export type NoticeScope = 'institution' | 'department' | 'course'
+export type NoticeScope = 'institution' | 'department' | 'course' | 'group'
 
 export interface Notice {
   id: string
@@ -131,6 +135,8 @@ export interface Notice {
   audience: 'all' | Role
   scope: NoticeScope
   courseId?: string
+  /** For group notices: the practical group (a session) that receives it. */
+  sessionId?: string
 }
 
 export interface GradingTask {

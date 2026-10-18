@@ -7,6 +7,7 @@ import { coursesStore, sessionsStore, useCourses, useOrgUnits, useSessions, useT
 import type { ClassSession, CompletionType, Course, Day, GradingComponent, SessionType } from '../../data/types'
 import { sameRoom, sessionsOverlap, slotLabel } from '../../lib/conflicts'
 import { teacherName } from '../../data/selectors'
+import { isGroup } from '../../lib/groups'
 import { useDemo } from '../../state/DemoContext'
 
 const PRESETS: Record<string, { label: string; scheme: GradingComponent[]; completion: CompletionType }> = {
@@ -81,6 +82,15 @@ export function CourseForm({ initial, onDone }: CourseFormProps) {
       if (!d.room.trim()) return setError(`Session ${i + 1}: enter a room.`)
       if (d.end <= d.start) return setError(`Session ${i + 1}: the end time must be after the start time.`)
     }
+    const labels = drafts.filter(isGroup).map((d) => (d.group ?? '').trim().toUpperCase())
+    for (const [i, d] of drafts.entries()) {
+      if (!isGroup(d)) continue
+      const label = (d.group ?? '').trim().toUpperCase()
+      if (!label) return setError(`Session ${i + 1}: give the practical group a label, for example A.`)
+      if (labels.filter((l) => l === label).length > 1) return setError(`Session ${i + 1}: group ${label} is used more than once.`)
+      const cap = d.capacity ?? 0
+      if (!Number.isInteger(cap) || cap < 1 || cap > 200) return setError(`Session ${i + 1}: capacity must be a whole number from 1 to 200.`)
+    }
     // Schedule check: a teacher or a room cannot be in two places at once.
     const others = existingSessions.filter((x) => x.courseId !== initial?.id)
     for (const [i, d] of drafts.entries()) {
@@ -101,7 +111,16 @@ export function CourseForm({ initial, onDone }: CourseFormProps) {
     const saveSessions = (courseId: string) =>
       sessionsStore.set((prev) => [
         ...prev.filter((x) => x.courseId !== courseId),
-        ...drafts.map((d) => ({ ...d, room: d.room.trim(), courseId, teacherId: teachersFinal.includes(d.teacherId) ? d.teacherId : guarantor })),
+        ...drafts.map((d) => ({
+          ...d,
+          room: d.room.trim(),
+          courseId,
+          teacherId: teachersFinal.includes(d.teacherId) ? d.teacherId : guarantor,
+          // Only practical groups have a label, capacity and seat count.
+          group: isGroup(d) ? (d.group ?? '').trim().toUpperCase() : undefined,
+          capacity: isGroup(d) ? d.capacity : undefined,
+          taken: isGroup(d) ? (d.taken ?? 0) : undefined,
+        })),
       ])
     const topicList = topics.split('\n').map((t) => t.trim()).filter(Boolean)
     const common = {
@@ -177,10 +196,10 @@ export function CourseForm({ initial, onDone }: CourseFormProps) {
               <Button
                 variant="secondary"
                 onClick={() =>
-                  setDrafts((prev) => [...prev, { id: `s-${Date.now()}`, day: 'Mon', start: '08:00', end: '09:40', type: 'Lecture', room: '', teacherId: guarantor }])
+                  setDrafts((prev) => [...prev, { id: `s-${Date.now()}`, day: 'Mon', start: '08:00', end: '09:40', type: 'Lecture', room: '', teacherId: guarantor, capacity: 20 }])
                 }
               >
-                Add lecture or practical
+                Add lecture or practical group
               </Button>
             </div>
             {drafts.length === 0 ? (
@@ -201,6 +220,12 @@ export function CourseForm({ initial, onDone }: CourseFormProps) {
                     <TextField label="Start" type="time" value={d.start} onChange={(v) => updateDraft(d.id, { start: v })} />
                     <TextField label="End" type="time" value={d.end} onChange={(v) => updateDraft(d.id, { end: v })} />
                     <TextField label="Room" value={d.room} onChange={(v) => updateDraft(d.id, { room: v })} />
+                    {isGroup(d) && (
+                      <>
+                        <TextField label="Group label" value={d.group ?? ''} onChange={(v) => updateDraft(d.id, { group: v })} hint="For example A, B, C" />
+                        <TextField label="Group capacity" type="number" min={1} max={200} value={String(d.capacity ?? 20)} onChange={(v) => updateDraft(d.id, { capacity: Number(v) })} />
+                      </>
+                    )}
                     <div className="sm:col-span-3">
                       <Button variant="secondary" onClick={() => setDrafts((prev) => prev.filter((x) => x.id !== d.id))}>
                         Remove session {i + 1}

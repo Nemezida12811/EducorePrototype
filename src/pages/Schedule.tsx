@@ -77,7 +77,7 @@ export function SchedulePage() {
                           <CourseLink courseId={s.courseId} />
                         </p>
                         <p className="text-sm text-ink-soft">
-                          {s.type}, room {s.room}
+                          {s.type}{s.group ? `, group ${s.group}` : ''}, room {s.room}
                         </p>
                         {role !== 'instructor' && <p className="text-sm text-ink-soft">{teacherName(s.teacherId)}</p>}
                       </li>

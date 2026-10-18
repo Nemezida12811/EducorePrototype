@@ -1,11 +1,12 @@
 import { useMemo } from 'react'
 import { INSTRUCTOR_ID } from '../data/demo'
 import { useCourses, useExams, useSessions } from '../data/stores'
+import { isGroup } from '../lib/groups'
 import { useDemo } from './DemoContext'
 
 /** Everything that belongs to the current role: courses, timetable, exams and visible notices. */
 export function useMine() {
-  const { role, enrolledIds, notices, readNoticeIds } = useDemo()
+  const { role, enrolledIds, groupChoice, notices, readNoticeIds } = useDemo()
   const courses = useCourses()
   const sessions = useSessions()
   const exams = useExams()
@@ -23,16 +24,29 @@ export function useMine() {
     const visibleNotices = notices
       .filter((n) => n.audience === 'all' || n.audience === role)
       .filter((n) => n.scope !== 'course' || role === 'admin' || (n.courseId !== undefined && ids.has(n.courseId)))
+      .filter((n) => {
+        if (n.scope !== 'group') return true
+        if (role === 'admin') return true
+        if (role === 'student') return n.courseId !== undefined && ids.has(n.courseId) && groupChoice[n.courseId] === n.sessionId
+        if (role === 'instructor') return sessions.find((x) => x.id === n.sessionId)?.teacherId === INSTRUCTOR_ID
+        return false
+      })
       .sort((a, b) => b.date.localeCompare(a.date))
 
     return {
       ids,
       courses: mineCourses,
-      // Teachers see the sessions they run; students and admins see every session of their courses.
-      sessions: sessions.filter((s) => ids.has(s.courseId) && (role !== 'instructor' || s.teacherId === INSTRUCTOR_ID)),
+      // Students attend every lecture plus their chosen practical group; teachers see the sessions they run;
+      // admins see every session.
+      sessions: sessions.filter((s) => {
+        if (!ids.has(s.courseId)) return false
+        if (role === 'student') return !isGroup(s) || groupChoice[s.courseId] === s.id
+        if (role === 'instructor') return s.teacherId === INSTRUCTOR_ID
+        return true
+      }),
       exams: exams.filter((e) => ids.has(e.courseId)).sort((a, b) => a.date.localeCompare(b.date)),
       notices: visibleNotices,
       unread: visibleNotices.filter((n) => !readNoticeIds.has(n.id)).length,
     }
-  }, [role, enrolledIds, notices, readNoticeIds, courses, sessions, exams])
+  }, [role, enrolledIds, groupChoice, notices, readNoticeIds, courses, sessions, exams])
 }

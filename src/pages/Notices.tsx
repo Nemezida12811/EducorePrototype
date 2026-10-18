@@ -9,17 +9,22 @@ import { PageHeader } from '../components/ui/PageHeader'
 import { Panel } from '../components/ui/Panel'
 import type { NoticeScope } from '../data/types'
 import { formatDate } from '../lib/format'
+import { INSTRUCTOR_ID } from '../data/demo'
+import { getCourse } from '../data/selectors'
+import { useSessions } from '../data/stores'
+import { groupName, isGroup } from '../lib/groups'
 import { useDemo } from '../state/DemoContext'
 import { useMine } from '../state/useMine'
 
 type Filter = 'all' | NoticeScope
 
-const SCOPE_LABEL: Record<NoticeScope, string> = { institution: 'Institution', department: 'Department', course: 'Course' }
+const SCOPE_LABEL: Record<NoticeScope, string> = { institution: 'Institution', department: 'Department', course: 'Course', group: 'Practical group' }
 
 export function NoticesPage() {
   const { role, readNoticeIds, toggleNoticeRead, markNoticesRead } = useDemo()
   const { notices, unread } = useMine()
   const [filter, setFilter] = useState<Filter>('all')
+  const sessionList = useSessions()
   const visible = notices.filter((n) => filter === 'all' || n.scope === filter)
 
   return (
@@ -49,6 +54,7 @@ export function NoticesPage() {
             { value: 'institution', label: 'Institution' },
             { value: 'department', label: 'Department' },
             { value: 'course', label: 'Course' },
+            { value: 'group', label: 'My group' },
           ]}
         />
         <p className="text-rose" role="status">
@@ -75,6 +81,10 @@ export function NoticesPage() {
                             <CourseLink courseId={n.courseId} />
                           </span>
                         )}
+                        {n.scope === 'group' && (() => {
+                          const g = sessionList.find((x) => x.id === n.sessionId)
+                          return g ? <Badge tone="soft">{groupName(g)}</Badge> : null
+                        })()}
                       </div>
                       <h3 className="text-lg font-semibold">{n.title}</h3>
                       <p className="mt-1">{n.body}</p>
@@ -110,21 +120,39 @@ export function NoticesPage() {
 const field = 'min-h-11 w-full rounded-md border-2 border-wine bg-fog px-3 text-wine'
 
 function ComposePanel() {
-  const { addNotice } = useDemo()
+  const { role, addNotice, groupTaken } = useDemo()
   const { courses } = useMine()
-  const ids = { title: useId(), body: useId(), scope: useId(), course: useId() }
+  const sessions = useSessions()
+  const ids = { title: useId(), body: useId(), scope: useId(), course: useId(), gcourse: useId(), group: useId() }
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [scope, setScope] = useState<NoticeScope>('institution')
   const [courseId, setCourseId] = useState(courses[0]?.id ?? '')
+  const [groupCourse, setGroupCourse] = useState('')
+  const [groupId, setGroupId] = useState('')
   const [message, setMessage] = useState('')
+
+  // Teachers can write to the groups they lead; admins to any group of an active course.
+  const allowed = sessions.filter(
+    (s) => isGroup(s) && !getCourse(s.courseId).archived && (role === 'admin' || s.teacherId === INSTRUCTOR_ID),
+  )
+  const groupCourseIds = Array.from(new Set(allowed.map((s) => s.courseId)))
+  const activeGroupCourse = groupCourseIds.includes(groupCourse) ? groupCourse : (groupCourseIds[0] ?? '')
+  const groupsOfCourse = allowed.filter((s) => s.courseId === activeGroupCourse)
+  const activeGroup = groupsOfCourse.find((g) => g.id === groupId) ?? groupsOfCourse[0]
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
-    addNotice({ title: title.trim(), body: body.trim(), scope, courseId: scope === 'course' ? courseId : undefined })
+    if (scope === 'group') {
+      if (!activeGroup) return
+      addNotice({ title: title.trim(), body: body.trim(), scope, courseId: activeGroup.courseId, sessionId: activeGroup.id })
+      setMessage(`Notice sent to ${groupTaken(activeGroup)} students in ${groupName(activeGroup)}.`)
+    } else {
+      addNotice({ title: title.trim(), body: body.trim(), scope, courseId: scope === 'course' ? courseId : undefined })
+      setMessage('Notice published.')
+    }
     setTitle('')
     setBody('')
-    setMessage('Notice published.')
   }
 
   return (
@@ -144,6 +172,7 @@ function ComposePanel() {
             <option value="institution">Whole institution</option>
             <option value="department">Department</option>
             <option value="course">One course</option>
+            <option value="group">One practical group</option>
           </select>
         </div>
         {scope === 'course' && (
@@ -156,7 +185,31 @@ function ComposePanel() {
             </select>
           </div>
         )}
-        <Button type="submit" disabled={!title.trim() || !body.trim()}>Publish notice</Button>
+        {scope === 'group' &&
+          (groupCourseIds.length === 0 ? (
+            <p className="text-ink-soft">You do not lead any practical group.</p>
+          ) : (
+            <>
+              <div>
+                <label htmlFor={ids.gcourse} className="mb-1 block font-medium">Course</label>
+                <select id={ids.gcourse} className={field} value={activeGroupCourse} onChange={(e) => setGroupCourse(e.target.value)}>
+                  {groupCourseIds.map((id) => (
+                    <option key={id} value={id}>{getCourse(id).code} {getCourse(id).name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor={ids.group} className="mb-1 block font-medium">Practical group</label>
+                <select id={ids.group} className={field} value={activeGroup?.id ?? ''} onChange={(e) => setGroupId(e.target.value)}>
+                  {groupsOfCourse.map((g) => (
+                    <option key={g.id} value={g.id}>{groupName(g)}, {g.day} {g.start}-{g.end}</option>
+                  ))}
+                </select>
+                {activeGroup && <p className="mt-1 text-sm text-ink-soft">Only the {groupTaken(activeGroup)} students in this group will receive it.</p>}
+              </div>
+            </>
+          ))}
+        <Button type="submit" disabled={!title.trim() || !body.trim() || (scope === 'group' && !activeGroup)}>Publish notice</Button>
         <p role="status" aria-live="polite" className="text-sm text-ink-soft">{message}</p>
       </form>
     </Panel>

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Archive, ArchiveRestore, ArrowLeft, Award, BookOpen, CheckCircle2, FileText, Gauge, Hourglass, Pencil, Percent, Trash2, Users } from 'lucide-react'
+import { Archive, ArchiveRestore, ArrowLeft, Award, BookOpen, CheckCircle2, FileText, Gauge, Hourglass, Pencil, Percent, Send, Trash2, Users } from 'lucide-react'
 import { CourseForm } from '../components/forms/CourseForm'
 import { ExamForm } from '../components/forms/ExamForm'
 import { Badge } from '../components/ui/Badge'
@@ -7,11 +7,11 @@ import { Button } from '../components/ui/Button'
 import { CourseLink } from '../components/ui/CourseLink'
 import { DataTable, type Column } from '../components/ui/DataTable'
 import { EmptyState } from '../components/ui/EmptyState'
-import { fieldClass, SelectField } from '../components/ui/Field'
+import { fieldClass, SelectField, TextAreaField, TextField } from '../components/ui/Field'
 import { Panel } from '../components/ui/Panel'
 import { ProgressBar } from '../components/ui/ProgressBar'
 import { StatCard, StatGrid } from '../components/ui/StatCard'
-import { DEMO_TODAY, INSTRUCTOR_ID, roster } from '../data/demo'
+import { DEMO_TODAY, INSTRUCTOR_ID, roster, rosterGroups } from '../data/demo'
 import { findCourse, getCourse, teacherName, teacherNames } from '../data/selectors'
 import {
   coursesStore,
@@ -29,6 +29,7 @@ import type { ClassSession, Course, Mark } from '../data/types'
 import { slotLabel, sessionsOverlap } from '../lib/conflicts'
 import { formatDate, formatWeekdayDate, percent } from '../lib/format'
 import { completedCourseIds, gradeFor, SCALE, summarize, summaryFor } from '../lib/grades'
+import { groupName, isGroup } from '../lib/groups'
 import { hrefFor } from '../lib/router'
 import { useDemo } from '../state/DemoContext'
 
@@ -58,10 +59,14 @@ function BackLink() {
 }
 
 function CourseDetail({ course }: { course: Course }) {
-  const { role, enrolledIds, waitlistIds, seatsTaken, toggleEnrollment } = useDemo()
+  const { role, enrolledIds, waitlistIds, seatsTaken, toggleEnrollment, groupChoice } = useDemo()
   const units = useOrgUnits()
   const allSessions = useSessions()
   const sessions = allSessions.filter((s) => s.courseId === course.id)
+  const groups = sessions.filter(isGroup).sort((a, b) => (a.group ?? '').localeCompare(b.group ?? ''))
+  const lectures = sessions.filter((s) => !isGroup(s))
+  const currentGroup = groupChoice[course.id]
+  const [selectedGroup, setSelectedGroup] = useState(currentGroup ?? (groups.length === 1 ? groups[0].id : ''))
   const [editing, setEditing] = useState(false)
   const [addingExam, setAddingExam] = useState(false)
   const [message, setMessage] = useState('')
@@ -78,14 +83,19 @@ function CourseDetail({ course }: { course: Course }) {
 
   const done = completedCourseIds()
   const unmet = course.prerequisiteIds.filter((id) => !done.has(id))
-  // Schedule check: does any session of this course overlap a session of a course the student is already in?
-  const enrolledSessions = allSessions.filter(
-    (x) => x.courseId !== course.id && enrolledIds.has(x.courseId) && !findCourse(x.courseId)?.archived,
+  // Schedule check: the sessions the student already attends (lectures plus the chosen practical group of each course).
+  const others = allSessions.filter(
+    (x) =>
+      x.courseId !== course.id &&
+      enrolledIds.has(x.courseId) &&
+      !findCourse(x.courseId)?.archived &&
+      (!isGroup(x) || groupChoice[x.courseId] === x.id),
   )
-  const clash = sessions
-    .flatMap((mine) => enrolledSessions.filter((other) => sessionsOverlap(mine, other)).map((other) => ({ mine, other })))
+  const clash = lectures
+    .flatMap((mine) => others.filter((other) => sessionsOverlap(mine, other)).map((other) => ({ mine, other })))
     .at(0)
-  const blocked = role === 'student' && !enrolled && !waitlisted && (unmet.length > 0 || clash !== undefined)
+  const needsGroup = groups.length > 0 && !selectedGroup && !full
+  const blocked = role === 'student' && !enrolled && !waitlisted && (unmet.length > 0 || clash !== undefined || needsGroup)
 
   const setArchived = (archived: boolean) => {
     coursesStore.set((prev) => prev.map((c) => (c.id === course.id ? { ...c, archived } : c)))
@@ -112,13 +122,16 @@ function CourseDetail({ course }: { course: Course }) {
             <p className="font-semibold">
               {enrolled ? 'You are enrolled' : waitlisted ? 'You are on the waitlist' : full ? 'No seats left' : `${course.studentLimit - taken} seats left`}
             </p>
-            <Button disabled={blocked} onClick={() => toggleEnrollment(course.id)}>
+            <Button disabled={blocked} onClick={() => toggleEnrollment(course.id, selectedGroup || undefined)}>
               {enrolled ? 'Withdraw from course' : waitlisted ? 'Leave waitlist' : full ? 'Join waitlist' : 'Enroll'}
             </Button>
             {role === 'student' && !enrolled && !waitlisted && clash && (
               <p className="text-sm" role="alert">
                 Schedule clash: {slotLabel(clash.mine)} ({clash.mine.type}) overlaps {getCourse(clash.other.courseId).name}, {slotLabel(clash.other)}.
               </p>
+            )}
+            {role === 'student' && !enrolled && !waitlisted && !clash && needsGroup && unmet.length === 0 && (
+              <p className="text-sm">Choose a practical group below to enroll.</p>
             )}
             {blocked && unmet.length > 0 && (
               <p className="text-sm">
@@ -163,7 +176,20 @@ function CourseDetail({ course }: { course: Course }) {
 
       <div className="grid gap-x-10 gap-y-10 lg:grid-cols-5">
         <div className="flex flex-col gap-10 lg:col-span-3">
+          {role === 'student' && !course.archived && groups.length > 0 && (
+            <StudentGroupPanel
+              course={course}
+              groups={groups}
+              lectures={lectures}
+              others={others}
+              selected={selectedGroup}
+              onSelect={setSelectedGroup}
+              enrolled={enrolled}
+              current={currentGroup}
+            />
+          )}
           {role === 'student' && <StudentGrades course={course} enrolled={enrolled} />}
+          {canManage && !course.archived && groups.length > 0 && <GroupsPanel course={course} groups={groups} />}
           {role === 'instructor' && (teaches ? <TeacherGrades course={course} /> : <NoAccess />)}
           <Panel title="Grading scheme">
             <ul className="divide-y divide-rose">
@@ -372,6 +398,7 @@ function StudentGrades({ course, enrolled }: { course: Course; enrolled: boolean
 
 function TeacherGrades({ course }: { course: Course }) {
   const grades = useRosterGrades()
+  const sessionsAll = useSessions()
   const [editing, setEditing] = useState(false)
   const rows = grades[course.id]
   if (!rows) {
@@ -397,6 +424,17 @@ function TeacherGrades({ course }: { course: Course }) {
         </>
       ),
     },
+    ...(rosterGroups[course.id]
+      ? [
+          {
+            header: 'Group',
+            cell: (s: Row) => {
+              const g = sessionsAll.find((x) => x.id === rosterGroups[course.id][s.index])
+              return g ? groupName(g) : '-'
+            },
+          } satisfies Column<Row>,
+        ]
+      : []),
     ...scheme.map<Column<Row>>((c, j) => ({
       header: c.name,
       cell: (s) =>
@@ -496,7 +534,7 @@ function TimetablePanel({ course, sessions }: { course: Course; sessions: ClassS
           {sorted.map((s) => (
             <li key={s.id} className="py-2.5 first:pt-0 last:pb-0">
               <p className="font-semibold">{s.day} {s.start}-{s.end}</p>
-              <p className="text-sm text-ink-soft">{s.type}, room {s.room}, {teacherName(s.teacherId)}</p>
+              <p className="text-sm text-ink-soft">{s.type}{s.group ? `, ${groupName(s).toLowerCase()}` : ''}, room {s.room}, {teacherName(s.teacherId)}</p>
             </li>
           ))}
         </ul>
@@ -579,6 +617,172 @@ function DocumentsPanel({ course, canUpload }: { course: Course; canUpload: bool
           <p role="alert" className="font-semibold">{error}</p>
         </div>
       )}
+    </Panel>
+  )
+}
+
+function StudentGroupPanel({
+  course,
+  groups,
+  lectures,
+  others,
+  selected,
+  onSelect,
+  enrolled,
+  current,
+}: {
+  course: Course
+  groups: ClassSession[]
+  lectures: ClassSession[]
+  others: ClassSession[]
+  selected: string
+  onSelect: (id: string) => void
+  enrolled: boolean
+  current: string | undefined
+}) {
+  const { groupTaken, chooseGroup } = useDemo()
+  const [message, setMessage] = useState('')
+
+  return (
+    <Panel title="Practical group">
+      <fieldset>
+        <legend className="mb-3 text-ink-soft">
+          {enrolled ? 'You can move to another group while seats are free.' : 'Choose the practical group you will attend. Lectures are shared by everyone.'}
+        </legend>
+        <ul className="flex flex-col gap-3">
+          {groups.map((g) => {
+            const taken = groupTaken(g)
+            const cap = g.capacity ?? Infinity
+            const full = taken >= cap && g.id !== current
+            const clashWith = [...others, ...lectures].find((o) => sessionsOverlap(g, o))
+            const disabled = full || clashWith !== undefined
+            const checked = selected === g.id
+            return (
+              <li key={g.id}>
+                <label
+                  className={`flex gap-3 rounded-md border-2 p-3 ${checked ? 'border-wine bg-fog' : 'border-rose'} ${disabled ? 'opacity-70' : 'cursor-pointer'}`}
+                >
+                  <input
+                    type="radio"
+                    name={`group-${course.id}`}
+                    className="mt-1 size-5 shrink-0 accent-wine"
+                    checked={checked}
+                    disabled={disabled}
+                    onChange={() => onSelect(g.id)}
+                  />
+                  <span className="block">
+                    <span className="block font-semibold">
+                      {groupName(g)}: {slotLabel(g)}
+                    </span>
+                    <span className="block text-sm">
+                      {g.type}, room {g.room}
+                    </span>
+                    <span className="block text-sm">Led by {teacherName(g.teacherId)}</span>
+                    <span className="block text-sm text-ink-soft">
+                      {full ? 'Full' : cap === Infinity ? `${taken} students` : `${cap - taken} of ${cap} seats left`}
+                      {g.id === current ? ', your group' : ''}
+                    </span>
+                    {clashWith && (
+                      <span className="block text-sm font-semibold">
+                        Overlaps {getCourse(clashWith.courseId).name}, {slotLabel(clashWith)}
+                      </span>
+                    )}
+                  </span>
+                </label>
+              </li>
+            )
+          })}
+        </ul>
+      </fieldset>
+      {enrolled && (
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <Button
+            disabled={!selected || selected === current}
+            onClick={() => {
+              chooseGroup(course.id, selected)
+              setMessage(`Moved to ${groupName(groups.find((g) => g.id === selected)!)}.`)
+            }}
+          >
+            Change group
+          </Button>
+          <p role="status" aria-live="polite" className="font-semibold">{message}</p>
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+function GroupsPanel({ course, groups }: { course: Course; groups: ClassSession[] }) {
+  const { role, groupTaken, addNotice } = useDemo()
+  const [notifying, setNotifying] = useState<string | null>(null)
+  const [title, setTitle] = useState('')
+  const [body, setBody] = useState('')
+  const [sent, setSent] = useState('')
+
+  const canNotify = (g: ClassSession) => role === 'admin' || (role === 'instructor' && g.teacherId === INSTRUCTOR_ID)
+  const members = (g: ClassSession) => roster.filter((_, i) => rosterGroups[course.id]?.[i] === g.id)
+
+  const send = (e: React.FormEvent, g: ClassSession) => {
+    e.preventDefault()
+    addNotice({ title: title.trim(), body: body.trim(), scope: 'group', courseId: course.id, sessionId: g.id })
+    setSent(`Notice sent to ${groupTaken(g)} students in ${groupName(g)}.`)
+    setNotifying(null)
+    setTitle('')
+    setBody('')
+  }
+
+  return (
+    <Panel title="Practical groups">
+      <ul className="flex flex-col gap-5">
+        {groups.map((g) => {
+          const taken = groupTaken(g)
+          const list = members(g)
+          return (
+            <li key={g.id} className="rounded-md border-2 border-rose p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold">
+                    {groupName(g)}: {slotLabel(g)}
+                  </p>
+                  <p className="text-sm">
+                    {g.type}, room {g.room}, led by {teacherName(g.teacherId)}
+                  </p>
+                </div>
+                {canNotify(g) && notifying !== g.id && (
+                  <Button variant="secondary" onClick={() => { setNotifying(g.id); setSent('') }} aria-label={`Notify ${groupName(g)}`}>
+                    <Send aria-hidden="true" className="mr-2 size-4" />
+                    Notify group
+                  </Button>
+                )}
+              </div>
+              <div className="mt-3 flex items-center gap-3 text-sm">
+                <div className="w-32">
+                  <ProgressBar value={taken} max={g.capacity ?? taken} label={`${groupName(g)} seats`} />
+                </div>
+                <span>{taken} of {g.capacity ?? taken} students</span>
+              </div>
+              {list.length > 0 && (
+                <p className="mt-2 text-sm text-ink-soft">
+                  Includes {list.map((m) => m.name).join(', ')}
+                  {taken > list.length ? ` and ${taken - list.length} more` : ''}.
+                </p>
+              )}
+              {notifying === g.id && (
+                <form onSubmit={(e) => send(e, g)} className="mt-4 flex flex-col gap-3 border-t border-rose pt-4">
+                  <TextField label={`Title for ${groupName(g)}`} value={title} onChange={setTitle} required />
+                  <TextAreaField label="Message" value={body} onChange={setBody} rows={3} />
+                  <p className="text-sm text-ink-soft">Only the {taken} students in this group will receive it.</p>
+                  <div className="flex flex-wrap gap-3">
+                    <Button type="submit" disabled={!title.trim() || !body.trim()}>Send to {groupName(g)}</Button>
+                    <Button variant="secondary" onClick={() => setNotifying(null)}>Cancel</Button>
+                  </div>
+                </form>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+      <p role="status" aria-live="polite" className="mt-4 font-semibold empty:hidden">{sent}</p>
     </Panel>
   )
 }

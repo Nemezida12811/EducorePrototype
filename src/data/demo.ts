@@ -161,7 +161,7 @@ const baseCourses: BaseCourse[] = [
     credits: 6,
     studentLimit: 120,
     enrolled: 112,
-    teacherIds: ['t1'],
+    teacherIds: ['t1', 't6'],
     archived: false,
   },
   {
@@ -175,7 +175,7 @@ const baseCourses: BaseCourse[] = [
     credits: 5,
     studentLimit: 40,
     enrolled: 38,
-    teacherIds: ['t2'],
+    teacherIds: ['t2', 't3'],
     archived: false,
   },
   {
@@ -189,7 +189,7 @@ const baseCourses: BaseCourse[] = [
     credits: 5,
     studentLimit: 60,
     enrolled: 54,
-    teacherIds: ['t3'],
+    teacherIds: ['t3', 't6'],
     archived: false,
   },
   {
@@ -203,7 +203,7 @@ const baseCourses: BaseCourse[] = [
     credits: 6,
     studentLimit: 80,
     enrolled: 71,
-    teacherIds: ['t1'],
+    teacherIds: ['t1', 't2'],
     archived: false,
   },
   {
@@ -259,7 +259,7 @@ const baseCourses: BaseCourse[] = [
     credits: 5,
     studentLimit: 30,
     enrolled: 30,
-    teacherIds: ['t6'],
+    teacherIds: ['t6', 't4'],
     archived: false,
   },
   // Archived courses from the previous academic year
@@ -355,21 +355,32 @@ export const studentEnrolledIds = ['ads2', 'cv', 'ddb', 'swa', 'aml', 'een']
 const baseSessions: Omit<ClassSession, 'teacherId'>[] = [
   { id: 's1', courseId: 'ads2', day: 'Mon', start: '08:00', end: '09:40', type: 'Lecture', room: 'A-112' },
   { id: 's2', courseId: 'swa', day: 'Mon', start: '10:00', end: '11:40', type: 'Lecture', room: 'B-129' },
-  { id: 's3', courseId: 'cv', day: 'Mon', start: '13:00', end: '14:40', type: 'Lab', room: 'L-04' },
+  { id: 's3', courseId: 'cv', day: 'Mon', start: '13:00', end: '14:40', type: 'Lab', room: 'L-04', group: 'A', capacity: 20, taken: 19 },
   { id: 's4', courseId: 'ddb', day: 'Tue', start: '09:00', end: '10:40', type: 'Lecture', room: 'A-112' },
   { id: 's5', courseId: 'aml', day: 'Tue', start: '11:00', end: '12:40', type: 'Lecture', room: 'B-129' },
-  { id: 's6', courseId: 'een', day: 'Tue', start: '14:00', end: '15:40', type: 'Seminar', room: 'C-017' },
+  { id: 's6', courseId: 'een', day: 'Tue', start: '14:00', end: '15:40', type: 'Seminar', room: 'C-017', group: 'A', capacity: 14, taken: 12 },
   { id: 's7', courseId: 'cv', day: 'Wed', start: '08:00', end: '09:40', type: 'Lecture', room: 'A-112' },
-  { id: 's8', courseId: 'ads2', day: 'Wed', start: '10:00', end: '11:40', type: 'Practical', room: 'L-02' },
+  { id: 's8', courseId: 'ads2', day: 'Wed', start: '10:00', end: '11:40', type: 'Practical', room: 'L-02', group: 'A', capacity: 40, taken: 38 },
   { id: 's9', courseId: 'sig', day: 'Wed', start: '13:00', end: '14:40', type: 'Lecture', room: 'B-203' },
-  { id: 's10', courseId: 'swa', day: 'Thu', start: '09:00', end: '10:40', type: 'Practical', room: 'L-06' },
-  { id: 's11', courseId: 'ddb', day: 'Thu', start: '11:00', end: '12:40', type: 'Lab', room: 'L-04' },
-  { id: 's12', courseId: 'aml', day: 'Thu', start: '14:00', end: '15:40', type: 'Lab', room: 'L-02' },
-  { id: 's13', courseId: 'emb', day: 'Fri', start: '09:00', end: '10:40', type: 'Lab', room: 'L-08' },
+  { id: 's10', courseId: 'swa', day: 'Thu', start: '09:00', end: '10:40', type: 'Practical', room: 'L-06', group: 'A', capacity: 25, taken: 24 },
+  { id: 's11', courseId: 'ddb', day: 'Thu', start: '11:00', end: '12:40', type: 'Lab', room: 'L-04', group: 'A', capacity: 30, taken: 27 },
+  { id: 's12', courseId: 'aml', day: 'Thu', start: '14:00', end: '15:40', type: 'Lab', room: 'L-02', group: 'A', capacity: 30, taken: 26 },
+  { id: 's13', courseId: 'emb', day: 'Fri', start: '09:00', end: '10:40', type: 'Lab', room: 'L-08', group: 'A', capacity: 16, taken: 16 },
+  { id: 's14', courseId: 'ads2', day: 'Thu', start: '13:00', end: '14:40', type: 'Practical', room: 'L-03', group: 'B', capacity: 40, taken: 40 },
+  { id: 's15', courseId: 'ads2', day: 'Fri', start: '11:00', end: '12:40', type: 'Practical', room: 'L-02', group: 'C', capacity: 40, taken: 34 },
+  { id: 's16', courseId: 'cv', day: 'Wed', start: '14:00', end: '15:40', type: 'Lab', room: 'L-04', group: 'B', capacity: 20, taken: 19 },
+  { id: 's17', courseId: 'ddb', day: 'Fri', start: '13:00', end: '14:40', type: 'Lab', room: 'L-04', group: 'B', capacity: 30, taken: 27 },
+  { id: 's18', courseId: 'swa', day: 'Tue', start: '09:00', end: '10:40', type: 'Practical', room: 'L-06', group: 'B', capacity: 25, taken: 24 },
+  { id: 's19', courseId: 'swa', day: 'Fri', start: '13:00', end: '14:40', type: 'Practical', room: 'L-06', group: 'C', capacity: 25, taken: 23 },
+  { id: 's20', courseId: 'aml', day: 'Wed', start: '14:00', end: '15:40', type: 'Lab', room: 'L-02', group: 'B', capacity: 30, taken: 24 },
+  { id: 's21', courseId: 'een', day: 'Thu', start: '16:00', end: '17:40', type: 'Seminar', room: 'C-017', group: 'B', capacity: 14, taken: 10 },
+  { id: 's22', courseId: 'emb', day: 'Fri', start: '11:00', end: '12:40', type: 'Lab', room: 'L-08', group: 'B', capacity: 16, taken: 14 },
 ]
 
 /** Sessions are run by the course guarantor unless listed here. */
-const sessionTeacher: Record<string, string> = { s12: 't2' }
+const sessionTeacher: Record<string, string> = {
+  s12: 't2', s14: 't6', s15: 't6', s16: 't3', s17: 't6', s18: 't2', s19: 't2', s20: 't1', s21: 't5', s22: 't4',
+}
 
 export const sessions: ClassSession[] = baseSessions.map((x) => ({
   ...x,
@@ -456,6 +467,7 @@ export const notices: Notice[] = [
   { id: 'n5', title: 'Winter enrollment report is ready', body: 'Course occupancy for the winter semester is on your dashboard and can be exported as CSV.', date: '2026-10-08', author: 'Study office', audience: 'admin', scope: 'institution' },
   { id: 'n6', title: 'Midterm results published', body: 'Midterm results are in your grades. A review session runs during Wednesday’s practical.', date: '2026-10-07', author: 'Assoc. Prof. Peter Horváth', audience: 'all', scope: 'course', courseId: 'ads2' },
   { id: 'n7', title: 'KPI project day on 3 November', body: 'Final-year students present their projects in the main lecture hall. Everyone is welcome.', date: '2026-10-06', author: 'Department of Computers and Informatics', audience: 'all', scope: 'department' },
+  { id: 'n9', title: 'Bring a laptop to Wednesday’s practical', body: 'Group A works on graph problems in Python. Charge your laptop and install the course template.', date: '2026-10-09', author: 'Assoc. Prof. Peter Horváth', audience: 'all', scope: 'group', courseId: 'ads2', sessionId: 's8' },
   { id: 'n8', title: 'Lab 2 feedback is available', body: 'Written feedback on the edge detection lab is attached to each submission.', date: '2026-10-08', author: 'Dr. Lucia Bartošová', audience: 'all', scope: 'course', courseId: 'cv' },
 ]
 
@@ -523,4 +535,16 @@ export const platform: PlatformSettings = {
   usersUsed: 4312,
   storageLimitGb: 250,
   storageUsedGb: 118.4,
+}
+
+/** Practical group the demo student has chosen per course (course id to session id). */
+export const initialGroupChoice: Record<string, string> = {
+  ads2: 's8', cv: 's3', ddb: 's11', swa: 's10', aml: 's12', een: 's6',
+}
+
+/** Group of each sample roster student, in roster order (session ids), for courses with groups. */
+export const rosterGroups: Record<string, string[]> = {
+  ads2: ['s8', 's14', 's15', 's8', 's14', 's15', 's8', 's14', 's15', 's8', 's14', 's15'],
+  swa: ['s10', 's18', 's19', 's10', 's18', 's19', 's10', 's18', 's19', 's10', 's18', 's19'],
+  aml: ['s12', 's20', 's12', 's20', 's12', 's20', 's12', 's20', 's12', 's20', 's12', 's20'],
 }

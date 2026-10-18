@@ -1,19 +1,21 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
 import {
   DEMO_TODAY,
+  initialGroupChoice,
   initialRegisteredExamIds,
   notices as initialNotices,
   studentEnrolledIds,
   users,
 } from '../data/demo'
 import { getCourse } from '../data/selectors'
-import type { Course, Notice, NoticeScope, Role } from '../data/types'
+import type { ClassSession, Course, Notice, NoticeScope, Role } from '../data/types'
 
 export interface NewNotice {
   title: string
   body: string
   scope: NoticeScope
   courseId?: string
+  sessionId?: string
 }
 
 interface DemoState {
@@ -25,8 +27,14 @@ interface DemoState {
   waitlistIds: ReadonlySet<string>
   /** Seats taken, adjusted by the demo student's own enrollment changes. */
   seatsTaken: (course: Course) => number
-  /** Enrolled -> withdraw, waitlisted -> leave list, seats left -> enroll, full -> join waitlist. */
-  toggleEnrollment: (courseId: string) => void
+  /** Practical group chosen per course (course id to session id). */
+  groupChoice: Readonly<Record<string, string>>
+  /** Students in a practical group, adjusted by the demo student's own choice. */
+  groupTaken: (session: ClassSession) => number
+  /** Enrolled -> withdraw, waitlisted -> leave list, seats left -> enroll (with a group), full -> join waitlist. */
+  toggleEnrollment: (courseId: string, groupId?: string) => void
+  /** Move an enrolled student to another practical group of the same course. */
+  chooseGroup: (courseId: string, sessionId: string) => void
   notices: Notice[]
   readNoticeIds: ReadonlySet<string>
   toggleNoticeRead: (id: string) => void
@@ -48,6 +56,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   const [registered, setRegistered] = useState<ReadonlySet<string>>(() => new Set(initialRegisteredExamIds))
   const [enrolled, setEnrolled] = useState<ReadonlySet<string>>(() => new Set(studentEnrolledIds))
   const [waitlist, setWaitlist] = useState<ReadonlySet<string>>(() => new Set())
+  const [groupChoice, setGroupChoice] = useState<Readonly<Record<string, string>>>(initialGroupChoice)
   const [notices, setNotices] = useState<Notice[]>(initialNotices)
   const [read, setRead] = useState<ReadonlySet<string>>(() => new Set())
 
@@ -63,16 +72,34 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     [enrolled],
   )
 
+  const groupTaken = useCallback(
+    (session: ClassSession) => {
+      const now = groupChoice[session.courseId] === session.id
+      const before = initialGroupChoice[session.courseId] === session.id
+      return (session.taken ?? 0) + (now ? 1 : 0) - (before ? 1 : 0)
+    },
+    [groupChoice],
+  )
+
   const toggleEnrollment = useCallback(
-    (courseId: string) => {
+    (courseId: string, groupId?: string) => {
       const course = getCourse(courseId)
-      if (enrolled.has(courseId)) setEnrolled((p) => toggled(p, courseId))
-      else if (waitlist.has(courseId)) setWaitlist((p) => toggled(p, courseId))
-      else if (seatsTaken(course) < course.studentLimit) setEnrolled((p) => toggled(p, courseId))
-      else setWaitlist((p) => toggled(p, courseId))
+      if (enrolled.has(courseId)) {
+        setEnrolled((p) => toggled(p, courseId))
+        setGroupChoice((p) => {
+          const { [courseId]: _removed, ...rest } = p
+          return rest
+        })
+      } else if (waitlist.has(courseId)) setWaitlist((p) => toggled(p, courseId))
+      else if (seatsTaken(course) < course.studentLimit) {
+        setEnrolled((p) => toggled(p, courseId))
+        if (groupId) setGroupChoice((p) => ({ ...p, [courseId]: groupId }))
+      } else setWaitlist((p) => toggled(p, courseId))
     },
     [enrolled, waitlist, seatsTaken],
   )
+
+  const chooseGroup = useCallback((courseId: string, sessionId: string) => setGroupChoice((p) => ({ ...p, [courseId]: sessionId })), [])
 
   const toggleNoticeRead = useCallback((id: string) => setRead((p) => toggled(p, id)), [])
   const markNoticesRead = useCallback((ids: string[]) => setRead((p) => new Set([...p, ...ids])), [])
@@ -100,14 +127,17 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       enrolledIds: enrolled,
       waitlistIds: waitlist,
       seatsTaken,
+      groupChoice,
+      groupTaken,
       toggleEnrollment,
+      chooseGroup,
       notices,
       readNoticeIds: read,
       toggleNoticeRead,
       markNoticesRead,
       addNotice,
     }),
-    [role, registered, toggleExamRegistration, enrolled, waitlist, seatsTaken, toggleEnrollment, notices, read, toggleNoticeRead, markNoticesRead, addNotice],
+    [role, registered, toggleExamRegistration, enrolled, waitlist, seatsTaken, groupChoice, groupTaken, toggleEnrollment, chooseGroup, notices, read, toggleNoticeRead, markNoticesRead, addNotice],
   )
   return <DemoContext.Provider value={value}>{children}</DemoContext.Provider>
 }
