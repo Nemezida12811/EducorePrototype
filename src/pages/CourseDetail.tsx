@@ -97,6 +97,31 @@ function CourseDetail({ course }: { course: Course }) {
   const needsGroup = groups.length > 0 && !selectedGroup && !full
   const blocked = role === 'student' && !enrolled && !waitlisted && (unmet.length > 0 || clash !== undefined || needsGroup)
 
+  // The enroll button and the reasons it may be disabled. It sits in the Practical group panel when the
+  // course has groups, and in the header box otherwise.
+  const enrollAction = (
+    <div className="flex flex-col items-start gap-2">
+      <Button disabled={blocked} onClick={() => toggleEnrollment(course.id, selectedGroup || undefined)}>
+        {enrolled ? 'Withdraw from course' : waitlisted ? 'Leave waitlist' : full ? 'Join waitlist' : 'Enroll'}
+      </Button>
+      {!enrolled && !waitlisted && clash && (
+        <p className="text-sm" role="alert">
+          Schedule clash: {slotLabel(clash.mine)} ({clash.mine.type}) overlaps {getCourse(clash.other.courseId).name}, {slotLabel(clash.other)}.
+        </p>
+      )}
+      {!enrolled && !waitlisted && !clash && needsGroup && unmet.length === 0 && (
+        <p className="text-sm">Choose a practical group above to enroll.</p>
+      )}
+      {blocked && unmet.length > 0 && (
+        <p className="text-sm">
+          Complete first: {unmet.map((id, i) => (
+            <span key={id}>{i > 0 && ', '}<CourseLink courseId={id} /></span>
+          ))}
+        </p>
+      )}
+    </div>
+  )
+
   const setArchived = (archived: boolean) => {
     coursesStore.set((prev) => prev.map((c) => (c.id === course.id ? { ...c, archived } : c)))
     setMessage(archived ? 'Course archived. Grades and history are kept.' : 'Course restored to the active list.')
@@ -122,23 +147,10 @@ function CourseDetail({ course }: { course: Course }) {
             <p className="font-semibold">
               {enrolled ? 'You are enrolled' : waitlisted ? 'You are on the waitlist' : full ? 'No seats left' : `${course.studentLimit - taken} seats left`}
             </p>
-            <Button disabled={blocked} onClick={() => toggleEnrollment(course.id, selectedGroup || undefined)}>
-              {enrolled ? 'Withdraw from course' : waitlisted ? 'Leave waitlist' : full ? 'Join waitlist' : 'Enroll'}
-            </Button>
-            {role === 'student' && !enrolled && !waitlisted && clash && (
-              <p className="text-sm" role="alert">
-                Schedule clash: {slotLabel(clash.mine)} ({clash.mine.type}) overlaps {getCourse(clash.other.courseId).name}, {slotLabel(clash.other)}.
-              </p>
-            )}
-            {role === 'student' && !enrolled && !waitlisted && !clash && needsGroup && unmet.length === 0 && (
-              <p className="text-sm">Choose a practical group below to enroll.</p>
-            )}
-            {blocked && unmet.length > 0 && (
-              <p className="text-sm">
-                Complete first: {unmet.map((id, i) => (
-                  <span key={id}>{i > 0 && ', '}<CourseLink courseId={id} /></span>
-                ))}
-              </p>
+            {groups.length > 0 ? (
+              <p className="text-sm">{enrolled ? 'Manage your group in the Practical group section.' : 'Pick a group and enroll in the Practical group section.'}</p>
+            ) : (
+              enrollAction
             )}
           </div>
         )}
@@ -186,6 +198,7 @@ function CourseDetail({ course }: { course: Course }) {
               onSelect={setSelectedGroup}
               enrolled={enrolled}
               current={currentGroup}
+              footer={enrollAction}
             />
           )}
           {role === 'student' && <StudentGrades course={course} enrolled={enrolled} />}
@@ -534,7 +547,7 @@ function TimetablePanel({ course, sessions }: { course: Course; sessions: ClassS
           {sorted.map((s) => (
             <li key={s.id} className="py-2.5 first:pt-0 last:pb-0">
               <p className="font-semibold">{s.day} {s.start}-{s.end}</p>
-              <p className="text-sm text-ink-soft">{s.type}{s.group ? `, ${groupName(s).toLowerCase()}` : ''}, room {s.room}, {teacherName(s.teacherId)}</p>
+              <p className="text-sm text-ink-soft">{s.type}{s.group ? `, group ${s.group}` : ''}, room {s.room}, {teacherName(s.teacherId)}</p>
             </li>
           ))}
         </ul>
@@ -630,6 +643,7 @@ function StudentGroupPanel({
   onSelect,
   enrolled,
   current,
+  footer,
 }: {
   course: Course
   groups: ClassSession[]
@@ -639,6 +653,7 @@ function StudentGroupPanel({
   onSelect: (id: string) => void
   enrolled: boolean
   current: string | undefined
+  footer: React.ReactNode
 }) {
   const { groupTaken, chooseGroup } = useDemo()
   const [message, setMessage] = useState('')
@@ -694,9 +709,10 @@ function StudentGroupPanel({
           })}
         </ul>
       </fieldset>
-      {enrolled && (
-        <div className="mt-4 flex flex-wrap items-center gap-3">
+      <div className="mt-5 flex flex-wrap items-start gap-3 border-t border-rose pt-5">
+        {enrolled && (
           <Button
+            variant="secondary"
             disabled={!selected || selected === current}
             onClick={() => {
               chooseGroup(course.id, selected)
@@ -705,9 +721,10 @@ function StudentGroupPanel({
           >
             Change group
           </Button>
-          <p role="status" aria-live="polite" className="font-semibold">{message}</p>
-        </div>
-      )}
+        )}
+        {footer}
+      </div>
+      <p role="status" aria-live="polite" className="mt-3 font-semibold empty:hidden">{message}</p>
     </Panel>
   )
 }

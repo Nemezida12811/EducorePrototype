@@ -1,5 +1,6 @@
 import { Award, BookOpen, CalendarClock, ClipboardCheck, Download, FileCheck2, GraduationCap, HardDrive, Percent, Users } from 'lucide-react'
 import { Badge } from '../components/ui/Badge'
+import { NextClassCard } from '../components/ui/NextClassCard'
 import { Button } from '../components/ui/Button'
 import { CourseLink } from '../components/ui/CourseLink'
 import { DataTable, type Column } from '../components/ui/DataTable'
@@ -83,6 +84,7 @@ function StudentDashboard() {
         title={`Welcome back, ${firstName}`}
         description={`You have ${todayCount} classes on ${DEMO_DAY_LONG} and ${registeredExamIds.size} exams registered.`}
       />
+      <NextClassCard sessions={mine.sessions} />
       <StatGrid>
         <StatCard label="This semester" value={`${semesterCredits} credits`} hint={`${mine.courses.length} courses enrolled`} icon={BookOpen} />
         <StatCard label="Weighted average" value={average.toFixed(2)} hint="Across completed courses, 1.00 is best" icon={Award} />
@@ -144,6 +146,7 @@ function InstructorDashboard() {
         title={`Good to see you, ${firstName}`}
         description={`You teach ${mine.courses.length} courses this semester. ${submissions} submissions are waiting for grades.`}
       />
+      <NextClassCard sessions={mine.sessions} />
       <StatGrid>
         <StatCard label="Courses taught" value={String(mine.courses.length)} hint={`${atCapacity} at full capacity`} icon={BookOpen} />
         <StatCard label="Students" value={String(students)} hint="Enrolled across your courses" icon={Users} />

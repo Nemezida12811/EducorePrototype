@@ -35,6 +35,17 @@
     @apply font-display;
   }
 
+  /*
+    The page is dark, but form controls are light surfaces. With the page-wide dark color scheme the
+    native option list turned its hover text white on a light background. Light controls restore the
+    standard blue highlight (and dark pickers icons) everywhere.
+  */
+  select,
+  input,
+  textarea {
+    color-scheme: light;
+  }
+
   /* A two-tone ring stays visible on both wine and blush surfaces. */
   :focus-visible {
     outline: 2px solid var(--color-wine);
