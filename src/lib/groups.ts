@@ -1,3 +1,4 @@
+import type { ClassSession } from '../data/types'
 
 /** Every session that is not a lecture is a practical group a student chooses between. */
 export const isGroup = (s: Pick<ClassSession, 'type'>) => s.type !== 'Lecture'
