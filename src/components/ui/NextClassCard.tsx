@@ -56,9 +56,6 @@ export function NextClassCard({ sessions }: { sessions: ClassSession[] }) {
           </div>
         )}
       </div>
-      <p className="mt-4 border-t border-rose pt-3 text-sm text-ink-soft">
-        Demo clock: {clockFormat.format(now)}. It starts on the demo Monday and runs in real time.
-      </p>
     </section>
   )
 }

@@ -1,0 +1,29 @@
+services:
+  api:
+    build: ../backend
+    env_file: .env
+    environment:
+      ENV: production
+      DATABASE_URL: sqlite:////data/educore.db
+      STORAGE_DIR: /data/files
+      CORS_ORIGINS: ""            # same-origin in production
+    volumes: [data:/data]
+    expose: ["8000"]              # NOT published: only the proxy can reach the API
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      retries: 6
+
+  web:
+    build: { context: .., dockerfile: deploy/web.Dockerfile }
+    depends_on: { api: { condition: service_healthy } }
+    environment: { SITE_ADDRESS: "${SITE_ADDRESS:-localhost}" }
+    ports: ["80:80", "443:443"]
+    volumes: [caddy_data:/data, caddy_config:/config]
+    restart: unless-stopped
+
+volumes: { data: {}, caddy_data: {}, caddy_config: {} }
+
+# First run:  cp .env.example .env (edit it!)  &&  docker compose run --rm api python -m app.seed  &&  docker compose up -d --build
+# Backup:     docker compose exec api python -c "import sqlite3; s=sqlite3.connect('/data/educore.db'); d=sqlite3.connect('/data/backup.db'); s.backup(d)"
