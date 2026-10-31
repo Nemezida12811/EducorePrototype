@@ -1,16 +1,14 @@
 import { Clock } from 'lucide-react'
-import { getCourse, teacherName } from '../../data/selectors'
+import { findCourse, teacherName } from '../../data/selectors'
 import type { ClassSession } from '../../data/types'
-import { currentSession, formatCountdown, nextSession, spokenRemaining, useDemoNow } from '../../lib/clock'
+import { currentSession, formatCountdown, nextSession, spokenRemaining, useNow } from '../../lib/clock'
 import { CourseLink } from './CourseLink'
 
-const clockFormat = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false })
+const describe = (s: ClassSession) => `${s.type}, room ${s.room}`
 
-const describe = (s: ClassSession) => `${s.type}${s.group ? `, group ${s.group}` : ''}, room ${s.room}`
-
-/** Live countdown to the next class on the demo clock. */
+/** Live countdown to the next class. */
 export function NextClassCard({ sessions }: { sessions: ClassSession[] }) {
-  const now = useDemoNow()
+  const now = useNow()
   const next = nextSession(sessions, now)
   const running = currentSession(sessions, now)
   const ms = next ? next.startsAt.getTime() - now.getTime() : 0
@@ -40,7 +38,7 @@ export function NextClassCard({ sessions }: { sessions: ClassSession[] }) {
           )}
           {running && (
             <p className="mt-3 text-sm">
-              In progress now: <span className="font-semibold">{getCourse(running.session.courseId).name}</span>, until {running.session.end}.
+              In progress now: <span className="font-semibold">{findCourse(running.session.courseId)?.name ?? 'a class'}</span>, until {running.session.end}.
             </p>
           )}
         </div>

@@ -1,20 +1,21 @@
 export type Role = 'student' | 'instructor' | 'admin' | 'superadmin'
-export type Day = 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri'
+export type Day = 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri' | 'Sat' | 'Sun'
 export type Mark = 'A' | 'B' | 'C' | 'D' | 'E' | 'FX'
 export type Term = 'Winter' | 'Summer'
 
+/** A department (the API has one flat list per institution). */
 export interface OrgUnit {
   id: string
   name: string
   code: string
-  parentId: string | null
 }
 
 export interface StudyProgram {
   id: string
   name: string
-  degreeLevel: 'Bachelor' | 'Master'
-  durationYears: number
+  /** Degree label such as "Bc." or "Ing.". */
+  degree: string
+  creditsRequired: number
   orgUnitId: string
   students: number
 }
@@ -22,17 +23,24 @@ export interface StudyProgram {
 export interface Teacher {
   id: string
   name: string
-  title: string
-  orgUnitId: string
+  orgUnitId: string | null
 }
 
 /** One component of Course.grading_scheme, e.g. "Midterm test", 20 points. */
 export interface GradingComponent {
   name: string
   max: number
+  /** Minimum points on this component needed to pass the course (0 = none). */
+  min: number
 }
 
-export type CompletionType = 'Exam' | 'Classified credit'
+export type CompletionType = 'Exam' | 'Credit' | 'Classified credit'
+
+export interface CourseTeacher {
+  id: string
+  name: string
+  isGuarantor: boolean
+}
 
 /** Course and its offering in one academic year (name, description, teachers, limit, year, archived). */
 export interface Course {
@@ -40,20 +48,55 @@ export interface Course {
   code: string
   name: string
   description: string
+  /** As stored by the API, for example "2026/2027". */
   academicYear: string
   semester: Term
   credits: number
   studentLimit: number
+  /** Students holding a seat (waitlisted students are not counted). */
   enrolled: number
+  waitlisted: number
+  teachers: CourseTeacher[]
   teacherIds: string[]
   archived: boolean
-  orgUnitId: string
+  orgUnitId: string | null
   completionType: CompletionType
   gradingScheme: GradingComponent[]
-  guarantorId: string
+  guarantorId: string | null
   topics: string[]
-  /** Courses that must be completed before enrolling. */
-  prerequisiteIds: string[]
+}
+
+export interface CoursePrerequisite {
+  id: string
+  code: string
+  name: string
+}
+
+export interface CourseDocument {
+  id: string
+  fileId: string
+  name: string
+  kind: 'Syllabus' | 'Material'
+  sizeKb: number
+}
+
+export interface MyGrade {
+  components: Record<string, number>
+  finalScore: number | null
+  mark: Mark | null
+}
+
+/** Everything the course page needs: the list fields plus what only GET /courses/:id returns. */
+export interface CourseDetailData extends Course {
+  prerequisites: CoursePrerequisite[]
+  sessions: ClassSession[]
+  documents: CourseDocument[]
+  exams: Exam[]
+  canManage: boolean
+  /** Students only. */
+  myEnrollment: { id: string; status: 'enrolled' | 'waitlisted' } | null
+  myGrade: MyGrade | null
+  missingPrerequisites: CoursePrerequisite[]
 }
 
 export type SessionType = 'Lecture' | 'Practical' | 'Lab' | 'Seminar'
@@ -67,12 +110,10 @@ export interface ClassSession {
   type: SessionType
   room: string
   /** The teacher who runs this session. */
-  teacherId: string
-  /** Practical groups (anything but a lecture): label such as "A", seat capacity and seats taken. */
-  group?: string
-  capacity?: number
-  taken?: number
+  teacherId: string | null
 }
+
+export type ExamFormat = 'Written' | 'Oral' | 'Online' | 'Practical'
 
 export interface Exam {
   id: string
@@ -80,51 +121,42 @@ export interface Exam {
   date: string // ISO yyyy-mm-dd
   start: string
   room: string
-  format: 'Written' | 'Oral' | 'Practical'
-  term: string
+  format: ExamFormat
+  term: number
   capacity: number
   registered: number
   registration: 'open' | 'closed'
+  /** Whether the signed-in student is registered for this term. */
+  registeredByMe: boolean
 }
 
-/** Points for one grading component; null means not graded yet. Aligned by index with the course scheme. */
-export interface GradeEntry {
-  points: number | null
-  date?: string
-}
-
-/** One Grade per (student, course): components plus a total that becomes the final score. */
+/** One grade per (student, course): component points keyed by component name, plus the final score the API derives. */
 export interface StudentGrade {
   courseId: string
-  entries: GradeEntry[]
-  finalizedAt?: string
+  components: Record<string, number>
+  finalScore: number | null
+  mark: Mark | null
+  updatedAt: string
 }
+
+export type PlanStatus = 'passed' | 'failed' | 'enrolled' | 'todo'
 
 export interface StudyPlanItem {
   courseId: string
-  yearOfStudy: number
-  term: Term
+  semesterNo: number
   mandatory: boolean
+  status: PlanStatus
+  mark: Mark | null
 }
 
-export interface Semester {
-  id: string
-  academicYear: string
-  term: Term
-  enrollmentStart: string
-  enrollmentEnd: string
-  start: string
-  teachingEnd: string
-  examStart: string
-  examEnd: string
+export interface StudyPlan {
+  programName: string | null
+  creditsRequired: number | null
+  creditsEarned: number
+  items: StudyPlanItem[]
 }
 
-export interface Holiday {
-  date: string
-  title: string
-}
-
-export type NoticeScope = 'institution' | 'department' | 'course' | 'group'
+export type NoticeScope = 'institution' | 'course'
 
 export interface Notice {
   id: string
@@ -132,58 +164,57 @@ export interface Notice {
   body: string
   date: string
   author: string
-  audience: 'all' | Role
   scope: NoticeScope
   courseId?: string
-  /** For group notices: the practical group (a session) that receives it. */
-  sessionId?: string
+  read: boolean
 }
 
-export interface GradingTask {
+export interface CalendarEvent {
   id: string
-  courseId: string
   title: string
-  submissions: number
-  due: string
+  kind: string
+  /** ISO date-time. */
+  start: string
+  end?: string
 }
 
 export interface RosterStudent {
   id: string
   name: string
+  email: string
+}
+
+/** A student's row in a course roster, with the grade (if any) from the grades API. */
+export interface RosterRow extends RosterStudent {
+  components: Record<string, number> | null
+  finalScore: number | null
+  mark: Mark | null
+}
+
+export interface EnrollmentItem {
+  id: string
+  courseId: string
+  status: 'enrolled' | 'waitlisted'
 }
 
 export interface DirectoryUser {
   id: string
+  firstName: string
+  lastName: string
   name: string
   email: string
   role: Role
   unit: string
   active: boolean
-  /** Set for users who teach: links the account to a Teacher. */
-  teacherId?: string
-}
-
-export interface DemoUser {
-  name: string
-  initials: string
-  detail: string
-}
-
-export interface CourseDocument {
-  id: string
-  courseId: string
-  name: string
-  kind: 'Syllabus' | 'Material'
-  sizeKb: number
-  uploadedAt: string
-  /** Only for files added during this session. */
-  url?: string
+  departmentId: string | null
+  studyProgramId: string | null
 }
 
 /** Platform-wide limits and usage (one institution, no plans). */
 export interface PlatformSettings {
+  institutionId: string
   userLimit: number
   usersUsed: number
-  storageLimitGb: number
-  storageUsedGb: number
+  storageLimitMb: number
+  storageUsedMb: number
 }

@@ -16,6 +16,8 @@ export const onSignedOut = (fn: () => void) => { listeners.add(fn); return () =>
 export interface AuthUser {
   id: string; email: string; firstName: string; lastName: string;
   role: 'student' | 'teacher' | 'admin' | 'super_admin'; twoFactorEnabled: boolean;
+  phone?: string | null; departmentId?: string | null; studyProgramId?: string | null;
+  notificationChannels?: { email: boolean; inApp: boolean; push: boolean };
   [k: string]: unknown;
 }
 export type LoginResult =

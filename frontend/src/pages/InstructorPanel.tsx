@@ -1,42 +1,52 @@
 import { useId, useState } from 'react'
 import { ArrowRight, Gauge, GraduationCap, Layers, Users } from 'lucide-react'
 import { Badge } from '../components/ui/Badge'
+import { CourseLink } from '../components/ui/CourseLink'
 import { DataTable, type Column } from '../components/ui/DataTable'
+import { EmptyState } from '../components/ui/EmptyState'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Panel } from '../components/ui/Panel'
 import { ProgressBar } from '../components/ui/ProgressBar'
 import { StatCard, StatGrid } from '../components/ui/StatCard'
-import { gradingQueue, roster } from '../data/demo'
-import { useRosterGrades } from '../data/stores'
-import { getCourse, teacherNames } from '../data/selectors'
-import type { RosterStudent } from '../data/types'
-import { formatDate, percent } from '../lib/format'
-import { summarize } from '../lib/grades'
+import { teacherNames } from '../data/selectors'
+import type { Course, RosterRow } from '../data/types'
+import { percent } from '../lib/format'
+import { summaryOf } from '../lib/grades'
 import { courseHref } from '../lib/router'
 import { useMine } from '../state/useMine'
+import { useCourseRosters } from '../state/useRosters'
 
-type Row = RosterStudent & { total: number; graded: number }
+type Row = RosterRow & { total: number; graded: number }
 
 export function InstructorPanelPage() {
   const taught = useMine().courses
-  const grades = useRosterGrades()
-  const [courseId, setCourseId] = useState(taught[0].id)
+  const rosters = useCourseRosters(taught.map((c) => c.id))
+  const [chosen, setChosen] = useState('')
   const selectId = useId()
-  const course = getCourse(courseId)
+  const course: Course | undefined = taught.find((c) => c.id === chosen) ?? taught[0]
 
-  const rowsFor = (id: string): Row[] => {
-    const c = getCourse(id)
-    if (!grades[id]) return []
-    return roster.map((s, i) => {
-      const sum = summarize(c.gradingScheme, grades[id][i])
-      return { ...s, total: sum.total, graded: sum.graded }
-    })
+  if (!course) {
+    return (
+      <>
+        <PageHeader title="Instructor panel" description="Roster, course details and grading work for the courses you teach." />
+        <EmptyState title="You do not teach any active course">Courses you are a teacher of appear here.</EmptyState>
+      </>
+    )
   }
 
-  const rows = rowsFor(courseId)
+  const rowsFor = (c: Course): Row[] =>
+    (rosters[c.id] ?? []).map((r) => {
+      const sum = summaryOf(c.gradingScheme, r)
+      return { ...r, total: sum.total, graded: sum.graded }
+    })
+
+  const rows = rowsFor(course)
   const students = taught.reduce((sum, c) => sum + c.enrolled, 0)
-  const submissions = gradingQueue.reduce((sum, g) => sum + g.submissions, 0)
-  const all = taught.flatMap((c) => rowsFor(c.id).map((r) => percent(r.total, r.graded)))
+  const queue = taught
+    .map((c) => ({ course: c, waiting: (rosters[c.id] ?? []).filter((r) => r.finalScore === null).length }))
+    .filter((q) => q.waiting > 0)
+  const waiting = queue.reduce((sum, q) => sum + q.waiting, 0)
+  const all = taught.flatMap((c) => rowsFor(c).filter((r) => r.graded > 0).map((r) => percent(r.total, r.graded)))
   const classAverage = all.length === 0 ? 0 : Math.round(all.reduce((a, b) => a + b, 0) / all.length)
 
   const columns: Column<Row>[] = [
@@ -46,7 +56,7 @@ export function InstructorPanelPage() {
       cell: (s) => (
         <>
           {s.name}
-          <span className="block text-sm font-normal text-ink-soft">{s.id}</span>
+          <span className="block text-sm font-normal text-ink-soft">{s.email}</span>
         </>
       ),
     },
@@ -72,7 +82,7 @@ export function InstructorPanelPage() {
       <StatGrid>
         <StatCard label="Courses taught" value={String(taught.length)} hint="Active this semester" icon={Layers} />
         <StatCard label="Students" value={String(students)} hint="Enrolled across your courses" icon={Users} />
-        <StatCard label="Awaiting grading" value={String(submissions)} hint={`Submissions in ${gradingQueue.length} tasks`} icon={GraduationCap} />
+        <StatCard label="Awaiting grading" value={String(waiting)} hint={`Students without a final grade in ${queue.length} courses`} icon={GraduationCap} />
         <StatCard label="Class average" value={`${classAverage}%`} hint="Of points available so far" icon={Gauge} />
       </StatGrid>
 
@@ -82,8 +92,8 @@ export function InstructorPanelPage() {
         </label>
         <select
           id={selectId}
-          value={courseId}
-          onChange={(e) => setCourseId(e.target.value)}
+          value={course.id}
+          onChange={(e) => setChosen(e.target.value)}
           className="min-h-11 w-full max-w-md rounded-md border-2 border-wine bg-blush px-3 font-semibold text-wine"
         >
           {taught.map((c) => (
@@ -129,21 +139,20 @@ export function InstructorPanelPage() {
           </Panel>
 
           <Panel title="Grading queue">
-            <ul className="divide-y divide-rose">
-              {[...gradingQueue]
-                .sort((a, b) => a.due.localeCompare(b.due))
-                .map((g) => (
-                  <li key={g.id} className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0">
-                    <div>
-                      <p className="font-semibold">{g.title}</p>
-                      <p className="text-sm text-ink-soft">
-                        {getCourse(g.courseId).code}, due {formatDate(g.due)}
-                      </p>
-                    </div>
-                    <Badge tone="soft">{g.submissions} to grade</Badge>
+            {queue.length === 0 ? (
+              <EmptyState title="Everyone is graded" />
+            ) : (
+              <ul className="divide-y divide-rose">
+                {queue.map((q) => (
+                  <li key={q.course.id} className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0">
+                    <p className="font-semibold">
+                      <CourseLink courseId={q.course.id} />
+                    </p>
+                    <Badge tone="soft">{q.waiting} to grade</Badge>
                   </li>
                 ))}
-            </ul>
+              </ul>
+            )}
           </Panel>
         </div>
       </div>

@@ -1,8 +1,7 @@
-import { studentGrades } from '../data/demo'
-import { getCourse } from '../data/selectors'
-import type { Course, GradingComponent, Mark, StudentGrade } from '../data/types'
+import { gradesStore } from '../data/stores'
+import type { GradingComponent, Mark, StudentGrade } from '../data/types'
 
-/** Slovak ECTS-style scale on the 0 to 100 final score. */
+/** Slovak ECTS-style scale on the 0 to 100 final score (the API uses the same one). */
 export const SCALE: { mark: Mark; min: number; range: string; name: string }[] = [
   { mark: 'A', min: 93, range: '93 to 100', name: 'Excellent' },
   { mark: 'B', min: 85, range: '85 to 92', name: 'Very good' },
@@ -19,10 +18,16 @@ export interface GradeSummary {
   total: number
   /** Maximum of the components graded so far. */
   graded: number
-  /** All components graded: total becomes the final score. */
+  /** All components graded: total is the final score. */
   complete: boolean
   mark: Mark | null
+  /** Graded components that are below their required minimum. */
+  belowMin: string[]
 }
+
+/** Points per scheme component, in scheme order; null = not graded yet. */
+export const pointsFor = (scheme: GradingComponent[], components: Record<string, number> | null | undefined): (number | null)[] =>
+  scheme.map((c) => (typeof components?.[c.name] === 'number' ? components[c.name]! : null))
 
 export function summarize(scheme: GradingComponent[], points: (number | null)[]): GradeSummary {
   let total = 0
@@ -35,29 +40,24 @@ export function summarize(scheme: GradingComponent[], points: (number | null)[])
       done += 1
     }
   })
-  const complete = done === scheme.length
-  return { total, graded, complete, mark: complete ? scoreToMark(total) : null }
+  const complete = scheme.length > 0 && done === scheme.length
+  const belowMin = scheme.filter((c, i) => points[i] !== null && points[i]! < c.min).map((c) => c.name)
+  // Missing a required minimum fails the course whatever the total is.
+  return { total, graded, complete, mark: complete ? (belowMin.length ? 'FX' : scoreToMark(total)) : null, belowMin }
 }
 
-/** Pads a roster row (first N components) to the full scheme length with nulls. */
-export const padRow = (row: number[], length: number): (number | null)[] =>
-  Array.from({ length }, (_, i) => (i < row.length ? row[i] : null))
-
-export const gradeFor = (courseId: string): StudentGrade | undefined =>
-  studentGrades.find((g) => g.courseId === courseId)
-
-export function summaryFor(course: Course, grade: StudentGrade | undefined): GradeSummary {
-  return summarize(course.gradingScheme, grade ? grade.entries.map((e) => e.points) : course.gradingScheme.map(() => null))
+/** Summary of one grade as the API stores it: the API's final score and mark win when present. */
+export function summaryOf(
+  scheme: GradingComponent[],
+  grade: { components: Record<string, number> | null; finalScore: number | null; mark: Mark | null } | null | undefined,
+): GradeSummary {
+  const s = summarize(scheme, pointsFor(scheme, grade?.components))
+  if (grade && grade.finalScore !== null && grade.mark !== null) return { ...s, total: grade.finalScore, complete: true, mark: grade.mark }
+  return s
 }
 
-/** Courses the demo student has passed (all components graded, mark above FX). */
-export function completedCourseIds(): Set<string> {
-  return new Set(
-    studentGrades
-      .filter((g) => {
-        const s = summaryFor(getCourse(g.courseId), g)
-        return s.complete && s.mark !== 'FX'
-      })
-      .map((g) => g.courseId),
-  )
-}
+export const gradeFor = (courseId: string): StudentGrade | undefined => gradesStore.get().find((g) => g.courseId === courseId)
+
+/** Courses the signed-in student has passed (final mark above FX). */
+export const completedCourseIds = (grades: StudentGrade[]): Set<string> =>
+  new Set(grades.filter((g) => g.finalScore !== null && g.mark !== null && g.mark !== 'FX').map((g) => g.courseId))

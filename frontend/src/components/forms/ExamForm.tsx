@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { Button } from '../ui/Button'
 import { SelectField, TextField } from '../ui/Field'
+import { addExam, errorMessage } from '../../data/actions'
 import { examsStore } from '../../data/stores'
 import { examsOverlap, sameRoom } from '../../lib/conflicts'
-import { getCourse } from '../../data/selectors'
+import { findCourse } from '../../data/selectors'
 import { formatWeekdayDate } from '../../lib/format'
-import type { Course, Exam } from '../../data/types'
+import type { Course, ExamFormat } from '../../data/types'
 
 interface ExamFormProps {
   /** Courses the user may add an exam term to. */
@@ -20,13 +21,14 @@ export function ExamForm({ courses, fixedCourseId, onDone }: ExamFormProps) {
   const [date, setDate] = useState('')
   const [start, setStart] = useState('09:00')
   const [room, setRoom] = useState('')
-  const [format, setFormat] = useState<Exam['format']>('Written')
-  const [term, setTerm] = useState('Term 1')
+  const [format, setFormat] = useState<ExamFormat>('Written')
+  const [term, setTerm] = useState('1')
   const [capacity, setCapacity] = useState('40')
-  const [registration, setRegistration] = useState<Exam['registration']>('open')
+  const [open, setOpen] = useState('open')
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     const cap = Number(capacity)
     if (!courseId) return setError('Choose a course.')
@@ -34,14 +36,18 @@ export function ExamForm({ courses, fixedCourseId, onDone }: ExamFormProps) {
     if (!room.trim()) return setError('Enter a room.')
     if (!Number.isInteger(cap) || cap < 1 || cap > 500) return setError('Capacity must be a whole number from 1 to 500.')
     const clash = examsStore.get().find((x) => sameRoom(x.room, room) && examsOverlap(x, { date, start }))
-    if (clash) return setError(`Room ${room.trim()} is already booked for ${getCourse(clash.courseId).code} on ${formatWeekdayDate(clash.date)} at ${clash.start} (exams last about two hours).`)
+    if (clash) return setError(`Room ${room.trim()} is already booked for ${findCourse(clash.courseId)?.code ?? 'another course'} on ${formatWeekdayDate(clash.date)} at ${clash.start} (exams last about two hours).`)
     const sameCourse = examsStore.get().find((x) => x.courseId === courseId && examsOverlap(x, { date, start }))
     if (sameCourse) return setError('This course already has an exam term at that time.')
-    examsStore.set((prev) => [
-      ...prev,
-      { id: `e-${Date.now()}`, courseId, date, start, room: room.trim(), format, term, capacity: cap, registered: 0, registration },
-    ])
-    onDone()
+    setBusy(true)
+    try {
+      await addExam(courseId, { date, time: start, room: room.trim(), format, term: Number(term), capacity: cap, registrationOpen: open === 'open' })
+      onDone()
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -58,23 +64,13 @@ export function ExamForm({ courses, fixedCourseId, onDone }: ExamFormProps) {
       <SelectField
         label="Format"
         value={format}
-        onChange={(v) => setFormat(v as Exam['format'])}
-        options={[{ value: 'Written', label: 'Written' }, { value: 'Oral', label: 'Oral' }, { value: 'Practical', label: 'Practical' }]}
+        onChange={(v) => setFormat(v as ExamFormat)}
+        options={(['Written', 'Oral', 'Online', 'Practical'] as const).map((f) => ({ value: f, label: f }))}
       />
-      <SelectField
-        label="Term"
-        value={term}
-        onChange={setTerm}
-        options={['Term 1', 'Term 2', 'Term 3'].map((t) => ({ value: t, label: t }))}
-      />
-      <SelectField
-        label="Registration"
-        value={registration}
-        onChange={(v) => setRegistration(v as Exam['registration'])}
-        options={[{ value: 'open', label: 'Open to students' }, { value: 'closed', label: 'Closed' }]}
-      />
+      <SelectField label="Term" value={term} onChange={setTerm} options={['1', '2', '3'].map((t) => ({ value: t, label: `Term ${t}` }))} />
+      <SelectField label="Registration" value={open} onChange={setOpen} options={[{ value: 'open', label: 'Open to students' }, { value: 'closed', label: 'Closed' }]} />
       <div className="flex flex-wrap items-center gap-3 sm:col-span-2">
-        <Button type="submit">Add exam term</Button>
+        <Button type="submit" disabled={busy}>Add exam term</Button>
         <Button variant="secondary" onClick={onDone}>Cancel</Button>
         <p role="alert" className="font-semibold">{error}</p>
       </div>

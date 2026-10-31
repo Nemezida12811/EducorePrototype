@@ -7,27 +7,33 @@ import { SelectField, TextField } from '../components/ui/Field'
 import { FilterTabs } from '../components/ui/FilterTabs'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Panel } from '../components/ui/Panel'
-import { directoryStore, teachersStore, useDirectory, useOrgUnits, usePrograms } from '../data/stores'
+import { createUser, errorMessage, updateUser } from '../data/actions'
+import { useDirectory, useOrgUnits, usePrograms } from '../data/stores'
+import { useApp } from '../state/AppContext'
 import type { DirectoryUser, Role } from '../data/types'
 
 type Filter = 'all' | Exclude<Role, 'superadmin'>
 type Editing = null | 'new' | string
 const ROLE_LABEL: Record<Role, string> = { student: 'Student', instructor: 'Teacher', admin: 'Administrator', superadmin: 'Super administrator' }
-const SELF_ID = 'u-admin'
-
-const emailOf = (name: string) =>
-  `${name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z\s]/g, '').trim().replace(/\s+/g, '.')}@educore.example`
 
 export function UsersPage() {
   const users = useDirectory()
+  const { user: me, role: myRole } = useApp()
+  const SELF_ID = me.id
   const [filter, setFilter] = useState<Filter>('all')
   const [editing, setEditing] = useState<Editing>(null)
   const [message, setMessage] = useState('')
 
-  const setActive = (u: DirectoryUser) => {
-    directoryStore.set((prev) => prev.map((x) => (x.id === u.id ? { ...x, active: !x.active } : x)))
-    setMessage(`${u.name} ${u.active ? 'deactivated' : 'activated'}.`)
+  const setActive = async (u: DirectoryUser) => {
+    try {
+      await updateUser(u.id, { active: !u.active })
+      setMessage(`${u.name} ${u.active ? 'deactivated' : 'activated'}.`)
+    } catch (e) {
+      setMessage(errorMessage(e))
+    }
   }
+  // Only a super administrator may change administrator accounts (the API enforces it too).
+  const locked = (u: DirectoryUser) => u.role === 'admin' && myRole !== 'superadmin'
 
   const rows = users.filter((u) => filter === 'all' || u.role === filter)
   const target = editing && editing !== 'new' ? users.find((u) => u.id === editing) : undefined
@@ -51,11 +57,11 @@ export function UsersPage() {
       align: 'right',
       cell: (u) => (
         <div className="flex justify-end gap-2">
-          <Button variant="secondary" onClick={() => setEditing(u.id)} aria-label={`Edit ${u.name}`}>Edit</Button>
+          <Button variant="secondary" disabled={locked(u)} onClick={() => setEditing(u.id)} aria-label={`Edit ${u.name}`}>Edit</Button>
           <Button
             variant="secondary"
-            disabled={u.id === SELF_ID}
-            onClick={() => setActive(u)}
+            disabled={u.id === SELF_ID || locked(u)}
+            onClick={() => void setActive(u)}
             aria-label={`${u.active ? 'Deactivate' : 'Activate'} ${u.name}`}
           >
             {u.active ? 'Deactivate' : 'Activate'}
@@ -69,7 +75,7 @@ export function UsersPage() {
     <>
       <PageHeader
         title="Users"
-        description="Create, edit and deactivate accounts, and change roles. Changes are demo-only and reset on reload."
+        description="Create, edit and deactivate accounts, and change roles."
         action={
           <div className="flex flex-wrap items-center gap-3">
             <FilterTabs
@@ -95,6 +101,8 @@ export function UsersPage() {
           <UserForm
             key={editing}
             user={target}
+            selfId={SELF_ID}
+            canCreateAdmins={myRole === 'superadmin'}
             onDone={(msg) => {
               setEditing(null)
               if (msg) setMessage(msg)
@@ -111,59 +119,54 @@ export function UsersPage() {
   )
 }
 
-function UserForm({ user, onDone }: { user?: DirectoryUser; onDone: (message?: string) => void }) {
+function UserForm({ user, selfId, canCreateAdmins, onDone }: { user?: DirectoryUser; selfId: string; canCreateAdmins: boolean; onDone: (message?: string) => void }) {
   const users = useDirectory()
-  const departments = useOrgUnits().filter((u) => u.parentId !== null)
+  const departments = useOrgUnits()
   const programs = usePrograms()
-  const isSelf = user?.id === SELF_ID
+  const isSelf = user?.id === selfId
 
-  const titleMatch = user?.teacherId ? teachersStore.get().find((t) => t.id === user.teacherId) : undefined
-  const [name, setName] = useState(titleMatch ? titleMatch.name : (user?.name ?? ''))
-  const [title, setTitle] = useState(titleMatch?.title ?? 'Dr.')
+  const [first, setFirst] = useState(user?.firstName ?? '')
+  const [last, setLast] = useState(user?.lastName ?? '')
   const [email, setEmail] = useState(user?.email ?? '')
   const [role, setRole] = useState<Exclude<Role, 'superadmin'>>((user?.role as Exclude<Role, 'superadmin'>) ?? 'student')
-  const [dept, setDept] = useState(departments.find((d) => d.code === user?.unit)?.id ?? departments[0].id)
-  const [program, setProgram] = useState(programs.find((p) => p.name === user?.unit)?.id ?? programs[0].id)
+  const [dept, setDept] = useState(user?.departmentId ?? departments[0]?.id ?? '')
+  const [program, setProgram] = useState(user?.studyProgramId ?? programs[0]?.id ?? '')
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const trimmed = name.trim()
-    const mail = (email.trim() || (trimmed ? emailOf(trimmed) : '')).toLowerCase()
-    if (!trimmed) return setError('Name is required.')
+    const mail = email.trim().toLowerCase()
+    if (!first.trim() || !last.trim()) return setError('First and last name are required.')
     if (!/^\S+@\S+\.\S+$/.test(mail)) return setError('Enter a valid e-mail address.')
     if (users.some((u) => u.email.toLowerCase() === mail && u.id !== user?.id)) return setError('This e-mail is already used by another account.')
-
-    const unit =
-      role === 'instructor' ? (departments.find((d) => d.id === dept)?.code ?? '') : role === 'student' ? (programs.find((p) => p.id === program)?.name ?? '') : 'Study office'
-
-    // Teachers also get a Teacher record so they can be chosen as course teachers.
-    let teacherId = user?.teacherId
-    if (role === 'instructor') {
-      if (teacherId) {
-        teachersStore.set((prev) => prev.map((t) => (t.id === teacherId ? { ...t, name: trimmed, title: title.trim(), orgUnitId: dept } : t)))
-      } else {
-        teacherId = `t-${Date.now()}`
-        const id = teacherId
-        teachersStore.set((prev) => [...prev, { id, name: trimmed, title: title.trim(), orgUnitId: dept }])
-      }
+    const input = {
+      firstName: first.trim(), lastName: last.trim(), email: mail, role,
+      departmentId: role === 'student' ? null : dept || null,
+      studyProgramId: role === 'student' ? program || null : null,
     }
-    const display = role === 'instructor' ? `${title.trim()} ${trimmed}`.trim() : trimmed
-
-    if (user) {
-      directoryStore.set((prev) => prev.map((u) => (u.id === user.id ? { ...u, name: display, email: mail, role, unit, teacherId } : u)))
-      onDone(`${display} updated.`)
-    } else {
-      directoryStore.set((prev) => [...prev, { id: `u-${Date.now()}`, name: display, email: mail, role, unit, active: true, teacherId }])
-      onDone(`${display} created.`)
+    setBusy(true)
+    try {
+      const display = `${input.firstName} ${input.lastName}`
+      if (user) {
+        await updateUser(user.id, input)
+        onDone(`${display} updated.`)
+      } else {
+        const password = await createUser(input)
+        onDone(password ? `${display} created. Temporary password (shown once): ${password}` : `${display} created.`)
+      }
+    } catch (err) {
+      setError(errorMessage(err))
+      setBusy(false)
     }
   }
 
   return (
     <Panel title={user ? `Edit ${user.name}` : 'New user'}>
       <form onSubmit={submit} className="grid gap-5 md:grid-cols-2">
-        <TextField label="Full name" value={name} onChange={setName} required />
-        <TextField label="E-mail" type="email" value={email} onChange={setEmail} hint="Leave empty to generate one from the name." />
+        <TextField label="First name" value={first} onChange={setFirst} required />
+        <TextField label="Last name" value={last} onChange={setLast} required />
+        <TextField label="E-mail" type="email" value={email} onChange={setEmail} required />
         <SelectField
           label="Role"
           value={role}
@@ -173,20 +176,17 @@ function UserForm({ user, onDone }: { user?: DirectoryUser; onDone: (message?: s
           options={[
             { value: 'student', label: 'Student' },
             { value: 'instructor', label: 'Teacher' },
-            { value: 'admin', label: 'Administrator' },
+            ...(canCreateAdmins ? [{ value: 'admin', label: 'Administrator' }] : []),
           ]}
         />
-        {role === 'instructor' && (
-          <>
-            <TextField label="Title" value={title} onChange={setTitle} hint="For example Dr., Prof." />
-            <SelectField label="Department" value={dept} onChange={setDept} options={departments.map((d) => ({ value: d.id, label: `${d.code}, ${d.name}` }))} />
-          </>
+        {role !== 'student' && (
+          <SelectField label="Department" value={dept} onChange={setDept} options={departments.map((d) => ({ value: d.id, label: `${d.code}, ${d.name}` }))} />
         )}
         {role === 'student' && (
-          <SelectField label="Study program" value={program} onChange={setProgram} options={programs.map((p) => ({ value: p.id, label: `${p.name} (${p.degreeLevel})` }))} />
+          <SelectField label="Study program" value={program} onChange={setProgram} options={programs.map((p) => ({ value: p.id, label: `${p.name} (${p.degree})` }))} />
         )}
         <div className="flex flex-wrap items-center gap-3 md:col-span-2">
-          <Button type="submit">{user ? 'Save changes' : 'Create user'}</Button>
+          <Button type="submit" disabled={busy}>{user ? 'Save changes' : 'Create user'}</Button>
           <Button variant="secondary" onClick={() => onDone()}>Cancel</Button>
           <p role="alert" className="font-semibold">{error}</p>
         </div>

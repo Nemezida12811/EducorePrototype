@@ -1,8 +1,8 @@
 import { X } from 'lucide-react'
-import { university } from '../../data/demo'
+import { useInstitution } from '../../data/stores'
 import { hrefFor, type RouteId } from '../../lib/router'
 import { NAV_ITEMS } from '../../nav'
-import { useDemo } from '../../state/DemoContext'
+import { useApp } from '../../state/AppContext'
 import { useMine } from '../../state/useMine'
 
 interface SidebarProps {
@@ -12,8 +12,9 @@ interface SidebarProps {
 }
 
 export function Sidebar({ route, open, onClose }: SidebarProps) {
-  const { role } = useDemo()
+  const { role } = useApp()
   const { unread } = useMine()
+  const institution = useInstitution()
   const items = NAV_ITEMS.filter((item) => item.roles.includes(role))
 
   return (
@@ -69,8 +70,7 @@ export function Sidebar({ route, open, onClose }: SidebarProps) {
         </nav>
 
         <div className="m-4 rounded-md bg-blush p-4 text-sm text-wine">
-          <p className="font-semibold">{university.name}</p>
-          <p className="mt-1">Demo build with static data. Nothing you do here is saved.</p>
+          <p className="font-semibold">{institution?.name ?? 'EduCore'}</p>
         </div>
       </aside>
     </>

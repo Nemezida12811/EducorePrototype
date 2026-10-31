@@ -8,7 +8,7 @@ import { CourseForm } from '../components/forms/CourseForm'
 import { Button } from '../components/ui/Button'
 import { useCourses } from '../data/stores'
 import { courseHref } from '../lib/router'
-import { useDemo } from '../state/DemoContext'
+import { useApp } from '../state/AppContext'
 import { useMine } from '../state/useMine'
 
 type Filter = 'mine' | 'open' | 'archived'
@@ -42,7 +42,7 @@ const DESCRIPTIONS = {
 }
 
 export function CoursesPage() {
-  const { role, enrolledIds, waitlistIds } = useDemo()
+  const { role, enrolledIds, waitlistIds } = useApp()
   const { ids: mine } = useMine()
   const courses = useCourses()
   const [creating, setCreating] = useState(false)
@@ -85,9 +85,9 @@ export function CoursesPage() {
       {creating && (
         <div className="mb-10">
           <CourseForm
-            onDone={(created) => {
+            onDone={(createdId) => {
               setCreating(false)
-              if (created) window.location.hash = courseHref(created.id).slice(1)
+              if (createdId) window.location.hash = courseHref(createdId).slice(1)
             }}
           />
         </div>

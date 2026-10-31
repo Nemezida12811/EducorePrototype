@@ -5,7 +5,8 @@ import { DataTable, type Column } from '../components/ui/DataTable'
 import { SelectField, TextField } from '../components/ui/Field'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Panel } from '../components/ui/Panel'
-import { orgUnitsStore, programsStore, useCourses, useOrgUnits, usePrograms, useTeachers } from '../data/stores'
+import { errorMessage, saveDepartment, saveProgram } from '../data/actions'
+import { useCourses, useOrgUnits, usePrograms, useTeachers } from '../data/stores'
 import type { OrgUnit, StudyProgram } from '../data/types'
 
 export function OrganizationPage() {
@@ -21,7 +22,7 @@ export function OrganizationPage() {
       header: 'Unit',
       rowHeader: true,
       cell: (u) => (
-        <span className={u.parentId ? 'ml-5 block border-l-2 border-mauve pl-3' : 'block'}>
+        <span className="block">
           {u.name}
           <span className="block text-sm font-normal text-ink-soft">{u.code}</span>
         </span>
@@ -39,8 +40,8 @@ export function OrganizationPage() {
 
   const programColumns: Column<StudyProgram>[] = [
     { header: 'Program', rowHeader: true, cell: (p) => p.name },
-    { header: 'Level', cell: (p) => p.degreeLevel },
-    { header: 'Duration', cell: (p) => `${p.durationYears} years` },
+    { header: 'Degree', cell: (p) => p.degree },
+    { header: 'Credits required', cell: (p) => p.creditsRequired },
     { header: 'Department', cell: (p) => units.find((u) => u.id === p.orgUnitId)?.code },
     { header: 'Students', cell: (p) => p.students },
     {
@@ -52,13 +53,13 @@ export function OrganizationPage() {
 
   return (
     <>
-      <PageHeader title="Organization" description="Manage the faculty's departments and the study programs they offer. Changes reset on reload." />
+      <PageHeader title="Organization" description="Manage the departments and the study programs they offer." />
       <div className="flex flex-col gap-10">
         {unitForm && (
           <UnitForm key={unitForm} unit={units.find((u) => u.id === unitForm)} onDone={() => setUnitForm(null)} />
         )}
         <Panel
-          title="Faculty and departments"
+          title="Departments"
           flush
           action={
             <Button variant="secondary" onClick={() => setUnitForm('new')}>
@@ -96,14 +97,17 @@ function UnitForm({ unit, onDone }: { unit?: OrgUnit; onDone: () => void }) {
   const [code, setCode] = useState(unit?.code ?? '')
   const [error, setError] = useState('')
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     const c = code.trim().toUpperCase()
     if (!name.trim() || !c) return setError('Name and code are required.')
     if (units.some((u) => u.code === c && u.id !== unit?.id)) return setError('Another unit already uses this code.')
-    if (unit) orgUnitsStore.set((prev) => prev.map((u) => (u.id === unit.id ? { ...u, name: name.trim(), code: c } : u)))
-    else orgUnitsStore.set((prev) => [...prev, { id: `ou-${Date.now()}`, name: name.trim(), code: c, parentId: 'fei' }])
-    onDone()
+    try {
+      await saveDepartment(unit?.id ?? null, { name: name.trim(), code: c })
+      onDone()
+    } catch (err) {
+      setError(errorMessage(err))
+    }
   }
 
   return (
@@ -121,31 +125,36 @@ function UnitForm({ unit, onDone }: { unit?: OrgUnit; onDone: () => void }) {
   )
 }
 
+const DEGREES = ['Bc.', 'Ing.', 'Mgr.', 'PhD.']
+
 function ProgramForm({ program, onDone }: { program?: StudyProgram; onDone: () => void }) {
-  const departments = useOrgUnits().filter((u) => u.parentId !== null)
+  const departments = useOrgUnits()
   const [name, setName] = useState(program?.name ?? '')
-  const [level, setLevel] = useState<string>(program?.degreeLevel ?? 'Bachelor')
-  const [years, setYears] = useState(String(program?.durationYears ?? 3))
-  const [unit, setUnit] = useState(program?.orgUnitId ?? departments[0].id)
+  const [degree, setDegree] = useState<string>(program?.degree ?? 'Bc.')
+  const [credits, setCredits] = useState(String(program?.creditsRequired ?? 180))
+  const [unit, setUnit] = useState(program?.orgUnitId ?? departments[0]?.id ?? '')
   const [error, setError] = useState('')
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const y = Number(years)
+    const c = Number(credits)
     if (!name.trim()) return setError('Name is required.')
-    if (!Number.isInteger(y) || y < 1 || y > 6) return setError('Duration must be 1 to 6 years.')
-    const values = { name: name.trim(), degreeLevel: level as StudyProgram['degreeLevel'], durationYears: y, orgUnitId: unit }
-    if (program) programsStore.set((prev) => prev.map((p) => (p.id === program.id ? { ...p, ...values } : p)))
-    else programsStore.set((prev) => [...prev, { ...values, id: `sp-${Date.now()}`, students: 0 }])
-    onDone()
+    if (!unit) return setError('Create a department first.')
+    if (!Number.isInteger(c) || c < 1 || c > 600) return setError('Required credits must be a whole number from 1 to 600.')
+    try {
+      await saveProgram(program?.id ?? null, { name: name.trim(), degree, creditsRequired: c, departmentId: unit })
+      onDone()
+    } catch (err) {
+      setError(errorMessage(err))
+    }
   }
 
   return (
     <Panel title={program ? `Edit ${program.name}` : 'New study program'}>
       <form onSubmit={submit} className="grid gap-5 md:grid-cols-2">
         <TextField label="Name" value={name} onChange={setName} required />
-        <SelectField label="Degree level" value={level} onChange={setLevel} options={[{ value: 'Bachelor', label: 'Bachelor' }, { value: 'Master', label: 'Master' }]} />
-        <TextField label="Duration (years)" type="number" min={1} max={6} value={years} onChange={setYears} />
+        <SelectField label="Degree" value={degree} onChange={setDegree} options={DEGREES.map((d) => ({ value: d, label: d }))} />
+        <TextField label="Credits required" type="number" min={1} max={600} value={credits} onChange={setCredits} />
         <SelectField label="Department" value={unit} onChange={setUnit} options={departments.map((d) => ({ value: d.id, label: `${d.code}, ${d.name}` }))} />
         <div className="flex flex-wrap items-center gap-3 md:col-span-2">
           <Button type="submit">{program ? 'Save changes' : 'Create program'}</Button>

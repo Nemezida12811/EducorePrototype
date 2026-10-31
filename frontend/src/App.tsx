@@ -16,7 +16,9 @@ import { ProfilePage } from './pages/Profile'
 import { SchedulePage } from './pages/Schedule'
 import { StudyPlanPage } from './pages/StudyPlan'
 import { UsersPage } from './pages/Users'
-import { useDemo } from './state/DemoContext'
+import { useAuth } from './auth/AuthContext'
+import { LoginPage } from './pages/Login'
+import { AppProvider, useApp } from './state/AppContext'
 
 const PAGES: Record<RouteId, () => React.JSX.Element> = {
   dashboard: DashboardPage,
@@ -35,8 +37,25 @@ const PAGES: Record<RouteId, () => React.JSX.Element> = {
 }
 
 export default function App() {
+  const { user, loading } = useAuth()
+  if (loading) {
+    return (
+      <main className="grid min-h-dvh place-items-center">
+        <p role="status">Loading…</p>
+      </main>
+    )
+  }
+  if (!user) return <LoginPage />
+  return (
+    <AppProvider>
+      <Portal />
+    </AppProvider>
+  )
+}
+
+function Portal() {
   const requested = useRoute()
-  const { role } = useDemo()
+  const { role } = useApp()
   // A route the current role cannot see (e.g. Users as a student) falls back to the dashboard.
   const id: RouteId = isAllowed(requested.id, role) ? requested.id : 'dashboard'
   const Page = PAGES[id]

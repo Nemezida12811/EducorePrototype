@@ -17,14 +17,16 @@ export function TextField({
   max,
   disabled,
   required,
+  autoComplete,
 }: BaseProps & {
   value: string
   onChange: (v: string) => void
-  type?: 'text' | 'number' | 'email' | 'time' | 'date'
+  type?: 'text' | 'number' | 'email' | 'time' | 'date' | 'password' | 'tel'
   min?: number
   max?: number
   disabled?: boolean
   required?: boolean
+  autoComplete?: string
 }) {
   const id = useId()
   return (
@@ -38,6 +40,7 @@ export function TextField({
         value={value}
         disabled={disabled}
         required={required}
+        autoComplete={autoComplete}
         aria-describedby={hint ? `${id}-hint` : undefined}
         onChange={(e) => onChange(e.target.value)}
         className={fieldClass}

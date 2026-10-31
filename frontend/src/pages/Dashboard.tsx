@@ -9,27 +9,23 @@ import { PageHeader } from '../components/ui/PageHeader'
 import { Panel } from '../components/ui/Panel'
 import { ProgressBar } from '../components/ui/ProgressBar'
 import { StatCard, StatGrid } from '../components/ui/StatCard'
-import {
-  DEMO_DAY,
-  DEMO_DAY_LONG,
-  degree,
-  gradingQueue,
-  studentGrades,
-  users,
-} from '../data/demo'
-import { useCourses, useOrgUnits, usePlatform, usePrograms, useTeachers } from '../data/stores'
-import { getCourse, teacherNames } from '../data/selectors'
+import { useCourses, useEvents, useGrades, useOrgUnits, usePlan, usePlatform, usePrograms, useTeachers } from '../data/stores'
+import { findCourse, teacherNames } from '../data/selectors'
 import type { Course } from '../data/types'
-import { upcomingKeyDates } from '../lib/calendar'
-import { downloadFile, toCsv } from '../lib/download'
-import { formatDate, formatShortDate, formatWeekdayDate, percent, weightedAverage } from '../lib/format'
-import { summaryFor } from '../lib/grades'
+import { upcomingEvents } from '../lib/calendar'
+import { download } from '../lib/api'
+import { DAY_LONG, dayOf } from '../lib/clock'
+import { errorMessage } from '../data/actions'
+import { formatDate, formatMb, formatShortDate, formatWeekdayDate, percent, weightedAverage } from '../lib/format'
+import { summaryOf } from '../lib/grades'
 import { hrefFor, type RouteId } from '../lib/router'
-import { useDemo } from '../state/DemoContext'
+import { useApp } from '../state/AppContext'
 import { useMine } from '../state/useMine'
+import { useCourseRosters } from '../state/useRosters'
+import { useState } from 'react'
 
 export function DashboardPage() {
-  const { role } = useDemo()
+  const { role } = useApp()
   if (role === 'student') return <StudentDashboard />
   if (role === 'instructor') return <InstructorDashboard />
   if (role === 'admin') return <AdminDashboard />
@@ -54,45 +50,47 @@ function Columns({ left, right }: { left: React.ReactNode; right: React.ReactNod
 }
 
 function StudentDashboard() {
-  const { registeredExamIds } = useDemo()
+  const { name } = useApp()
   const mine = useMine()
+  const courses = useCourses()
+  const grades = useGrades()
+  const plan = usePlan()
   const semesterCredits = mine.courses.reduce((sum, c) => sum + c.credits, 0)
+  const today = dayOf(new Date())
 
-  const finished = studentGrades
-    .map((g) => ({ course: getCourse(g.courseId), s: summaryFor(getCourse(g.courseId), g) }))
-    .filter((x) => x.s.complete)
-  const earned = degree.creditsBeforeArchive + finished.filter((x) => x.s.mark !== 'FX').reduce((sum, x) => sum + x.course.credits, 0)
+  const rows = grades.flatMap((g) => {
+    const course = courses.find((c) => c.id === g.courseId)
+    return course ? [{ course, grade: g, s: summaryOf(course.gradingScheme, g) }] : []
+  })
+  const finished = rows.filter((x) => x.s.complete)
+  const earned = plan?.creditsEarned ?? finished.filter((x) => x.s.mark !== 'FX').reduce((sum, x) => sum + x.course.credits, 0)
   const average = weightedAverage(finished.map((x) => ({ mark: x.s.mark!, credits: x.course.credits })))
-  const nextExam = mine.exams[0]
-  const todayCount = mine.sessions.filter((s) => s.day === DEMO_DAY).length
-  const firstName = users.student.name.split(' ')[0]
-
-  const recent = studentGrades
-    .filter((g) => !g.finalizedAt)
-    .flatMap((g) => {
-      const course = getCourse(g.courseId)
-      return g.entries.flatMap((e, i) =>
-        e.points !== null && e.date ? [{ id: `${g.courseId}-${i}`, course, name: course.gradingScheme[i].name, max: course.gradingScheme[i].max, points: e.points, date: e.date }] : [],
-      )
-    })
-    .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, 4)
+  const upcoming = mine.exams.filter((e) => e.date >= new Date().toISOString().slice(0, 10))
+  const nextExam = upcoming.find((e) => e.registeredByMe) ?? upcoming[0]
+  const todayCount = mine.sessions.filter((s) => s.day === today).length
+  const registered = mine.exams.filter((e) => e.registeredByMe).length
+  const recent = [...rows].sort((a, b) => b.grade.updatedAt.localeCompare(a.grade.updatedAt)).slice(0, 4)
 
   return (
     <>
       <PageHeader
-        title={`Welcome back, ${firstName}`}
-        description={`You have ${todayCount} classes on ${DEMO_DAY_LONG} and ${registeredExamIds.size} exams registered.`}
+        title={`Welcome back, ${name.split(' ')[0]}`}
+        description={`You have ${todayCount} classes on ${DAY_LONG[today]} and ${registered} exams registered.`}
       />
       <NextClassCard sessions={mine.sessions} />
       <StatGrid>
         <StatCard label="This semester" value={`${semesterCredits} credits`} hint={`${mine.courses.length} courses enrolled`} icon={BookOpen} />
-        <StatCard label="Weighted average" value={average.toFixed(2)} hint="Across completed courses, 1.00 is best" icon={Award} />
-        <StatCard label="Credits earned" value={String(earned)} hint={`${degree.requiredCredits - earned} left to finish the degree`} icon={GraduationCap} />
+        <StatCard label="Weighted average" value={finished.length ? average.toFixed(2) : '-'} hint="Across completed courses, 1.00 is best" icon={Award} />
+        <StatCard
+          label="Credits earned"
+          value={String(earned)}
+          hint={plan?.creditsRequired ? `${Math.max(0, plan.creditsRequired - earned)} left to finish the degree` : 'From courses passed'}
+          icon={GraduationCap}
+        />
         <StatCard
           label="Next exam"
           value={nextExam ? formatShortDate(nextExam.date) : 'None'}
-          hint={nextExam ? `${getCourse(nextExam.courseId).name}, ${nextExam.format.toLowerCase()}` : 'No exams scheduled'}
+          hint={nextExam ? `${findCourse(nextExam.courseId)?.name ?? 'Course'}, ${nextExam.format.toLowerCase()}` : 'No exams scheduled'}
           icon={ClipboardCheck}
         />
       </StatGrid>
@@ -101,22 +99,28 @@ function StudentDashboard() {
           <>
             <TodayPanel />
             <Panel title="Recent results" action={<PanelLink to="grades">All grades</PanelLink>}>
-              <ul className="divide-y divide-rose">
-                {recent.map((r) => (
-                  <li key={r.id} className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0">
-                    <div>
-                      <p className="font-semibold">{r.name}</p>
-                      <p className="text-sm text-ink-soft">
-                        <CourseLink courseId={r.course.id} />, {formatDate(r.date)}
+              {recent.length === 0 ? (
+                <EmptyState title="No results yet" />
+              ) : (
+                <ul className="divide-y divide-rose">
+                  {recent.map((r) => (
+                    <li key={r.course.id} className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0">
+                      <div>
+                        <p className="font-semibold">
+                          <CourseLink courseId={r.course.id} />
+                        </p>
+                        <p className="text-sm text-ink-soft">
+                          {r.s.complete ? `Final mark ${r.s.mark}` : 'In progress'}, {formatDate(r.grade.updatedAt)}
+                        </p>
+                      </div>
+                      <p className="font-display text-xl font-semibold whitespace-nowrap">
+                        {r.s.total}
+                        <span className="text-base font-normal text-ink-soft"> / {r.s.complete ? 100 : r.s.graded}</span>
                       </p>
-                    </div>
-                    <p className="font-display text-xl font-semibold whitespace-nowrap">
-                      {r.points}
-                      <span className="text-base font-normal text-ink-soft"> / {r.max}</span>
-                    </p>
-                  </li>
-                ))}
-              </ul>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </Panel>
           </>
         }
@@ -133,28 +137,32 @@ function StudentDashboard() {
 }
 
 function InstructorDashboard() {
+  const { name } = useApp()
   const mine = useMine()
+  const rosters = useCourseRosters(mine.courses.map((c) => c.id))
   const students = mine.courses.reduce((sum, c) => sum + c.enrolled, 0)
   const atCapacity = mine.courses.filter((c) => c.enrolled >= c.studentLimit).length
-  const submissions = gradingQueue.reduce((sum, g) => sum + g.submissions, 0)
-  const nextExam = mine.exams[0]
-  const firstName = users.instructor.name.split(' ')[0]
+  const queue = mine.courses
+    .map((c) => ({ course: c, waiting: (rosters[c.id] ?? []).filter((r) => r.finalScore === null).length }))
+    .filter((q) => q.waiting > 0)
+  const waiting = queue.reduce((sum, q) => sum + q.waiting, 0)
+  const nextExam = mine.exams.find((e) => e.date >= new Date().toISOString().slice(0, 10))
 
   return (
     <>
       <PageHeader
-        title={`Good to see you, ${firstName}`}
-        description={`You teach ${mine.courses.length} courses this semester. ${submissions} submissions are waiting for grades.`}
+        title={`Good to see you, ${name.split(' ')[0]}`}
+        description={`You teach ${mine.courses.length} courses this semester. ${waiting} students are still waiting for a final grade.`}
       />
       <NextClassCard sessions={mine.sessions} />
       <StatGrid>
         <StatCard label="Courses taught" value={String(mine.courses.length)} hint={`${atCapacity} at full capacity`} icon={BookOpen} />
         <StatCard label="Students" value={String(students)} hint="Enrolled across your courses" icon={Users} />
-        <StatCard label="Awaiting grading" value={String(submissions)} hint={`Submissions in ${gradingQueue.length} tasks`} icon={FileCheck2} />
+        <StatCard label="Awaiting grading" value={String(waiting)} hint={`Students without a final grade in ${queue.length} courses`} icon={FileCheck2} />
         <StatCard
           label="Next exam"
           value={nextExam ? formatShortDate(nextExam.date) : 'None'}
-          hint={nextExam ? `${getCourse(nextExam.courseId).name}, ${nextExam.format.toLowerCase()}` : 'No exams scheduled'}
+          hint={nextExam ? `${findCourse(nextExam.courseId)?.name ?? 'Course'}, ${nextExam.format.toLowerCase()}` : 'No exams scheduled'}
           icon={CalendarClock}
         />
       </StatGrid>
@@ -163,21 +171,20 @@ function InstructorDashboard() {
           <>
             <TodayPanel />
             <Panel title="Grading queue" action={<PanelLink to="instructor">Instructor panel</PanelLink>}>
-              <ul className="divide-y divide-rose">
-                {[...gradingQueue]
-                  .sort((a, b) => a.due.localeCompare(b.due))
-                  .map((g) => (
-                    <li key={g.id} className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0">
-                      <div>
-                        <p className="font-semibold">{g.title}</p>
-                        <p className="text-sm text-ink-soft">
-                          <CourseLink courseId={g.courseId} />, due {formatDate(g.due)}
-                        </p>
-                      </div>
-                      <Badge tone="soft">{g.submissions} to grade</Badge>
+              {queue.length === 0 ? (
+                <EmptyState title="Everyone is graded" />
+              ) : (
+                <ul className="divide-y divide-rose">
+                  {queue.map((q) => (
+                    <li key={q.course.id} className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0">
+                      <p className="font-semibold">
+                        <CourseLink courseId={q.course.id} />
+                      </p>
+                      <Badge tone="soft">{q.waiting} to grade</Badge>
                     </li>
                   ))}
-              </ul>
+                </ul>
+              )}
             </Panel>
           </>
         }
@@ -194,16 +201,17 @@ function InstructorDashboard() {
 }
 
 function AdminDashboard() {
-  const { seatsTaken } = useDemo()
+  const { name } = useApp()
+  const [error, setError] = useState('')
   const courses = useCourses()
   const teachers = useTeachers()
   const orgUnits = useOrgUnits()
   const studyPrograms = usePrograms()
   const active = courses.filter((c) => !c.archived)
-  const taken = active.reduce((s, c) => s + seatsTaken(c), 0)
+  const taken = active.reduce((s, c) => s + c.enrolled, 0)
   const limit = active.reduce((s, c) => s + c.studentLimit, 0)
   const studentsTotal = studyPrograms.reduce((s, p) => s + p.students, 0)
-  const departments = orgUnits.filter((u) => u.parentId !== null).length
+  const departments = orgUnits.length
 
   const columns: Column<Course>[] = [
     {
@@ -216,37 +224,30 @@ function AdminDashboard() {
         </>
       ),
     },
-    { header: 'Seats', cell: (c) => <span className="whitespace-nowrap">{seatsTaken(c)} of {c.studentLimit}</span> },
+    { header: 'Seats', cell: (c) => <span className="whitespace-nowrap">{c.enrolled} of {c.studentLimit}</span> },
     {
       header: 'Occupancy',
       align: 'right',
       cell: (c) => (
         <div className="ml-auto flex items-center gap-3">
           <div className="w-24">
-            <ProgressBar value={seatsTaken(c)} max={c.studentLimit} label={`${c.name} occupancy`} />
+            <ProgressBar value={c.enrolled} max={c.studentLimit} label={`${c.name} occupancy`} />
           </div>
-          <span className="w-10 text-right font-semibold">{percent(seatsTaken(c), c.studentLimit)}%</span>
+          <span className="w-10 text-right font-semibold">{percent(c.enrolled, c.studentLimit)}%</span>
         </div>
       ),
     },
   ]
 
-  const exportCsv = () =>
-    downloadFile(
-      'course-occupancy.csv',
-      'text/csv',
-      toCsv([
-        ['Code', 'Course', 'Teachers', 'Seats taken', 'Student limit', 'Occupancy %'],
-        ...active.map((c) => [c.code, c.name, teacherNames(c).join('; '), seatsTaken(c), c.studentLimit, percent(seatsTaken(c), c.studentLimit)]),
-      ]),
-    )
+  const exportCsv = () => download('/reports/export?report=occupancy&format=csv', {}, 'course-occupancy.csv').catch((e) => setError(errorMessage(e)))
 
   return (
     <>
       <PageHeader
-        title={`Hello, ${users.admin.name.split(' ')[0]}`}
-        description="Institution overview for the winter semester: occupancy, key dates and notices."
+        title={`Hello, ${name.split(' ')[0]}`}
+        description="Institution overview: occupancy, key dates and notices."
       />
+      <p role="alert" className="mb-4 font-semibold empty:hidden">{error}</p>
       <StatGrid>
         <StatCard label="Active courses" value={String(active.length)} hint={`${courses.length - active.length} in the archive`} icon={BookOpen} />
         <StatCard label="Seats filled" value={`${percent(taken, limit)}%`} hint={`${taken} of ${limit} seats`} icon={Percent} />
@@ -280,20 +281,22 @@ function AdminDashboard() {
 }
 
 function SuperAdminDashboard() {
+  const { name } = useApp()
   const platform = usePlatform()
   const courses = useCourses()
   const teachers = useTeachers()
   const active = courses.filter((c) => !c.archived).length
+  if (!platform) return <PageHeader title="Platform" description="Platform data is not available." />
 
   return (
     <>
       <PageHeader
-        title={`Hello, ${users_name()}`}
+        title={`Hello, ${name.split(' ')[0]}`}
         description="Platform overview: users, storage and limits."
       />
       <StatGrid>
         <StatCard label="Users" value={platform.usersUsed.toLocaleString('en-GB')} hint={`Limit ${platform.userLimit.toLocaleString('en-GB')}`} icon={Users} />
-        <StatCard label="Storage used" value={`${Math.round(platform.storageUsedGb)} GB`} hint={`Limit ${platform.storageLimitGb} GB`} icon={HardDrive} />
+        <StatCard label="Storage used" value={formatMb(platform.storageUsedMb)} hint={`Limit ${formatMb(platform.storageLimitMb)}`} icon={HardDrive} />
         <StatCard label="Active courses" value={String(active)} hint={`${courses.length - active} archived`} icon={BookOpen} />
         <StatCard label="Teachers" value={String(teachers.length)} hint="With a teaching account" icon={GraduationCap} />
       </StatGrid>
@@ -309,9 +312,9 @@ function SuperAdminDashboard() {
           <li>
             <div className="mb-2 flex justify-between gap-3">
               <span className="font-semibold">Storage</span>
-              <span>{platform.storageUsedGb} of {platform.storageLimitGb} GB</span>
+              <span>{formatMb(platform.storageUsedMb)} of {formatMb(platform.storageLimitMb)}</span>
             </div>
-            <ProgressBar value={platform.storageUsedGb} max={platform.storageLimitGb} label="Storage usage" />
+            <ProgressBar value={platform.storageUsedMb} max={platform.storageLimitMb} label="Storage usage" />
           </li>
         </ul>
       </Panel>
@@ -319,15 +322,14 @@ function SuperAdminDashboard() {
   )
 }
 
-const users_name = () => users.superadmin.name.split(' ')[0]
-
 function TodayPanel() {
   const mine = useMine()
-  const todays = mine.sessions.filter((s) => s.day === DEMO_DAY).sort((a, b) => a.start.localeCompare(b.start))
+  const today = dayOf(new Date())
+  const todays = mine.sessions.filter((s) => s.day === today).sort((a, b) => a.start.localeCompare(b.start))
   return (
-    <Panel title={`${DEMO_DAY_LONG}'s classes`} action={<PanelLink to="schedule">Full schedule</PanelLink>}>
+    <Panel title={`${DAY_LONG[today]}'s classes`} action={<PanelLink to="schedule">Full schedule</PanelLink>}>
       {todays.length === 0 ? (
-        <EmptyState title={`No classes on ${DEMO_DAY_LONG}`} />
+        <EmptyState title={`No classes on ${DAY_LONG[today]}`} />
       ) : (
         <ol className="divide-y divide-rose">
           {todays.map((s) => (
@@ -353,9 +355,10 @@ function TodayPanel() {
 }
 
 function UpcomingExamsPanel() {
-  const upcoming = useMine().exams.slice(0, 3)
+  const upcoming = useMine().exams.filter((e) => e.date >= new Date().toISOString().slice(0, 10)).slice(0, 3)
   return (
     <Panel title="Upcoming exams" action={<PanelLink to="exams">All exams</PanelLink>}>
+      {upcoming.length === 0 && <EmptyState title="No upcoming exams" />}
       <ul className="divide-y divide-rose">
         {upcoming.map((e) => (
           <li key={e.id} className="py-3 first:pt-0 last:pb-0">
@@ -373,13 +376,14 @@ function UpcomingExamsPanel() {
 }
 
 function KeyDatesPanel() {
-  const dates = upcomingKeyDates(3)
+  const dates = upcomingEvents(useEvents(), 3)
   return (
     <Panel title="Key dates" action={<PanelLink to="calendar">Calendar</PanelLink>}>
+      {dates.length === 0 && <EmptyState title="No upcoming dates" />}
       <ul className="divide-y divide-rose">
         {dates.map((d) => (
           <li key={d.id} className="py-3 first:pt-0 last:pb-0">
-            <p className="font-semibold">{d.label}</p>
+            <p className="font-semibold">{d.title}</p>
             <p className="text-sm text-ink-soft">
               {formatDate(d.start)}
               {d.end ? ` to ${formatDate(d.end)}` : ''}
@@ -398,6 +402,7 @@ function NoticesPanel() {
       title={unread > 0 ? `Notices (${unread} unread)` : 'Notices'}
       action={<PanelLink to="notices">All notices</PanelLink>}
     >
+      {notices.length === 0 && <EmptyState title="No notices" />}
       <ul className="divide-y divide-rose">
         {notices.slice(0, 3).map((n) => (
           <li key={n.id} className="py-3 first:pt-0 last:pb-0">

@@ -10,7 +10,7 @@ export function CourseLink({ courseId, children }: { courseId: string; children?
       href={courseHref(courseId)}
       className="underline decoration-mauve decoration-2 underline-offset-4 hover:decoration-wine"
     >
-      {children ?? course?.name ?? courseId}
+      {children ?? course?.name ?? 'Course'}
     </a>
   )
 }

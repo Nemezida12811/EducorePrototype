@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Archive, ArchiveRestore, ArrowLeft, Award, BookOpen, CheckCircle2, FileText, Gauge, Hourglass, Pencil, Percent, Send, Trash2, Users } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { Archive, ArchiveRestore, ArrowLeft, Award, BookOpen, CheckCircle2, FileText, Gauge, Hourglass, Pencil, Percent, Trash2, Users } from 'lucide-react'
 import { CourseForm } from '../components/forms/CourseForm'
 import { ExamForm } from '../components/forms/ExamForm'
 import { Badge } from '../components/ui/Badge'
@@ -7,46 +7,63 @@ import { Button } from '../components/ui/Button'
 import { CourseLink } from '../components/ui/CourseLink'
 import { DataTable, type Column } from '../components/ui/DataTable'
 import { EmptyState } from '../components/ui/EmptyState'
-import { fieldClass, SelectField, TextAreaField, TextField } from '../components/ui/Field'
+import { fieldClass, SelectField } from '../components/ui/Field'
 import { Panel } from '../components/ui/Panel'
 import { ProgressBar } from '../components/ui/ProgressBar'
 import { StatCard, StatGrid } from '../components/ui/StatCard'
-import { DEMO_TODAY, INSTRUCTOR_ID, roster, rosterGroups } from '../data/demo'
-import { findCourse, getCourse, teacherName, teacherNames } from '../data/selectors'
 import {
-  coursesStore,
-  documentsStore,
-  examsStore,
-  setRosterGrade,
-  useCourses,
-  useDocuments,
-  useExams,
-  useOrgUnits,
-  useRosterGrades,
-  useSessions,
-} from '../data/stores'
-import type { ClassSession, Course, Mark } from '../data/types'
-import { slotLabel, sessionsOverlap } from '../lib/conflicts'
-import { formatDate, formatWeekdayDate, percent } from '../lib/format'
-import { completedCourseIds, gradeFor, SCALE, summarize, summaryFor } from '../lib/grades'
-import { groupName, isGroup } from '../lib/groups'
+  deleteExam, deleteFile, enroll, errorMessage, saveGrade, setCourseArchived, uploadCourseDocument, withdraw,
+  reloadRoster,
+} from '../data/actions'
+import { mapCourseDetail } from '../data/mappers'
+import { findCourse, teacherName, teacherNames } from '../data/selectors'
+import { useCourses, useExams, useOrgUnits, useSessions } from '../data/stores'
+import type { ClassSession, Course, CourseDetailData, Mark, RosterRow } from '../data/types'
+import { api, ApiError, download } from '../lib/api'
+import { sessionsOverlap, slotLabel } from '../lib/conflicts'
+import { formatWeekdayDate, percent } from '../lib/format'
+import { SCALE, summarize, summaryOf, pointsFor } from '../lib/grades'
 import { hrefFor } from '../lib/router'
-import { useDemo } from '../state/DemoContext'
+import { useApp } from '../state/AppContext'
+import { useCourseRosters } from '../state/useRosters'
+
+type Load = { state: 'loading' } | { state: 'missing' } | { state: 'error'; message: string } | { state: 'ready'; detail: CourseDetailData }
+
+/** GET /courses/:id: the fields the list does not carry (prerequisites, timetable, documents, your own grade and enrollment). */
+function useCourseDetail(courseId: string) {
+  const [load, setLoad] = useState<Load>({ state: 'loading' })
+  const reload = useCallback(async () => {
+    try {
+      const raw = await api<Record<string, unknown>>(`/courses/${courseId}`)
+      setLoad({ state: 'ready', detail: mapCourseDetail(raw) })
+    } catch (e) {
+      setLoad(e instanceof ApiError && e.status === 404 ? { state: 'missing' } : { state: 'error', message: errorMessage(e) })
+    }
+  }, [courseId])
+  useEffect(() => {
+    setLoad({ state: 'loading' })
+    void reload()
+  }, [reload])
+  return { load, reload }
+}
 
 export function CourseDetailPage({ courseId }: { courseId: string }) {
-  useCourses() // re-render when the course is edited or archived
-  const course = findCourse(courseId)
-  if (!course) {
+  const { load, reload } = useCourseDetail(courseId)
+  useCourses() // the list (seat counts) changes when someone enrolls
+  if (load.state === 'loading') return <p role="status">Loading course…</p>
+  if (load.state !== 'ready') {
     return (
       <>
         <BackLink />
-        <Panel title="Course not found">
-          <EmptyState title="There is no course with this address">Go back to the course list and pick one from there.</EmptyState>
+        <Panel title={load.state === 'missing' ? 'Course not found' : 'The course could not be loaded'}>
+          <EmptyState title={load.state === 'missing' ? 'There is no course with this address' : load.message}>
+            Go back to the course list and pick one from there.
+          </EmptyState>
         </Panel>
       </>
     )
   }
-  return <CourseDetail course={course} />
+  return <CourseDetail detail={load.detail} reload={reload} />
 }
 
 function BackLink() {
@@ -58,74 +75,82 @@ function BackLink() {
   )
 }
 
-function CourseDetail({ course }: { course: Course }) {
-  const { role, enrolledIds, waitlistIds, seatsTaken, toggleEnrollment, groupChoice } = useDemo()
+function CourseDetail({ detail, reload }: { detail: CourseDetailData; reload: () => Promise<void> }) {
+  const { role, enrolledIds, waitlistIds, enrollmentFor } = useApp()
   const units = useOrgUnits()
-  const allSessions = useSessions()
-  const sessions = allSessions.filter((s) => s.courseId === course.id)
-  const groups = sessions.filter(isGroup).sort((a, b) => (a.group ?? '').localeCompare(b.group ?? ''))
-  const lectures = sessions.filter((s) => !isGroup(s))
-  const currentGroup = groupChoice[course.id]
-  const [selectedGroup, setSelectedGroup] = useState(currentGroup ?? (groups.length === 1 ? groups[0].id : ''))
+  const mySessions = useSessions()
+  const exams = useExams()
+  // The list entry has the live seat counts; the detail was loaded earlier.
+  const course: CourseDetailData = { ...detail, ...(findCourse(detail.id) ?? {}) }
+  const sessions = detail.sessions
   const [editing, setEditing] = useState(false)
   const [addingExam, setAddingExam] = useState(false)
   const [message, setMessage] = useState('')
-  const allExams = useExams()
+  const [busy, setBusy] = useState(false)
 
-  const taken = seatsTaken(course)
+  const taken = course.enrolled
   const full = taken >= course.studentLimit
   const enrolled = enrolledIds.has(course.id)
   const waitlisted = waitlistIds.has(course.id)
-  const teaches = role === 'instructor' && course.teacherIds.includes(INSTRUCTOR_ID)
-  const canManage = role === 'admin' || teaches
+  const canManage = course.canManage
+  const teaches = role === 'instructor' && canManage
   const unit = units.find((u) => u.id === course.orgUnitId)
-  const courseExams = allExams.filter((e) => e.courseId === course.id).sort((a, b) => a.date.localeCompare(b.date))
+  const courseExams = exams.filter((e) => e.courseId === course.id).sort((a, b) => a.date.localeCompare(b.date))
 
-  const done = completedCourseIds()
-  const unmet = course.prerequisiteIds.filter((id) => !done.has(id))
-  // Schedule check: the sessions the student already attends (lectures plus the chosen practical group of each course).
-  const others = allSessions.filter(
-    (x) =>
-      x.courseId !== course.id &&
-      enrolledIds.has(x.courseId) &&
-      !findCourse(x.courseId)?.archived &&
-      (!isGroup(x) || groupChoice[x.courseId] === x.id),
-  )
-  const clash = lectures
-    .flatMap((mine) => others.filter((other) => sessionsOverlap(mine, other)).map((other) => ({ mine, other })))
-    .at(0)
-  const needsGroup = groups.length > 0 && !selectedGroup && !full
-  const blocked = role === 'student' && !enrolled && !waitlisted && (unmet.length > 0 || clash !== undefined || needsGroup)
+  const unmet = detail.missingPrerequisites
+  // Schedule check: the sessions the student already attends in other courses.
+  const others = mySessions.filter((x) => x.courseId !== course.id && enrolledIds.has(x.courseId) && !findCourse(x.courseId)?.archived)
+  const clash = sessions.flatMap((mine) => others.filter((other) => sessionsOverlap(mine, other)).map((other) => ({ mine, other }))).at(0)
+  const blocked = role === 'student' && !enrolled && !waitlisted && (unmet.length > 0 || clash !== undefined)
 
-  // The enroll button and the reasons it may be disabled. It sits in the Practical group panel when the
-  // course has groups, and in the header box otherwise.
+  const run = async (action: () => Promise<string>) => {
+    setBusy(true)
+    try {
+      setMessage(await action())
+      await reload()
+    } catch (e) {
+      setMessage(errorMessage(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const toggleEnrollment = () =>
+    run(async () => {
+      const existing = enrollmentFor(course.id)
+      if (existing) {
+        await withdraw(existing.id)
+        return existing.status === 'waitlisted' ? 'You left the waitlist.' : 'You withdrew from the course.'
+      }
+      const status = await enroll(course.id)
+      return status === 'enrolled' ? 'You are enrolled.' : 'The course is full, so you were added to the waitlist.'
+    })
+
   const enrollAction = (
     <div className="flex flex-col items-start gap-2">
-      <Button disabled={blocked} onClick={() => toggleEnrollment(course.id, selectedGroup || undefined)}>
+      <Button disabled={blocked || busy} onClick={() => void toggleEnrollment()}>
         {enrolled ? 'Withdraw from course' : waitlisted ? 'Leave waitlist' : full ? 'Join waitlist' : 'Enroll'}
       </Button>
       {!enrolled && !waitlisted && clash && (
         <p className="text-sm" role="alert">
-          Schedule clash: {slotLabel(clash.mine)} ({clash.mine.type}) overlaps {getCourse(clash.other.courseId).name}, {slotLabel(clash.other)}.
+          Schedule clash: {slotLabel(clash.mine)} ({clash.mine.type}) overlaps {findCourse(clash.other.courseId)?.name ?? 'another course'}, {slotLabel(clash.other)}.
         </p>
-      )}
-      {!enrolled && !waitlisted && !clash && needsGroup && unmet.length === 0 && (
-        <p className="text-sm">Choose a practical group above to enroll.</p>
       )}
       {blocked && unmet.length > 0 && (
         <p className="text-sm">
-          Complete first: {unmet.map((id, i) => (
-            <span key={id}>{i > 0 && ', '}<CourseLink courseId={id} /></span>
+          Complete first: {unmet.map((p, i) => (
+            <span key={p.id}>{i > 0 && ', '}<CourseLink courseId={p.id} /></span>
           ))}
         </p>
       )}
     </div>
   )
 
-  const setArchived = (archived: boolean) => {
-    coursesStore.set((prev) => prev.map((c) => (c.id === course.id ? { ...c, archived } : c)))
-    setMessage(archived ? 'Course archived. Grades and history are kept.' : 'Course restored to the active list.')
-  }
+  const setArchived = (archived: boolean) =>
+    run(async () => {
+      await setCourseArchived(course.id, archived)
+      return archived ? 'Course archived. Grades and history are kept.' : 'Course restored to the active list.'
+    })
 
   return (
     <>
@@ -147,11 +172,7 @@ function CourseDetail({ course }: { course: Course }) {
             <p className="font-semibold">
               {enrolled ? 'You are enrolled' : waitlisted ? 'You are on the waitlist' : full ? 'No seats left' : `${course.studentLimit - taken} seats left`}
             </p>
-            {groups.length > 0 ? (
-              <p className="text-sm">{enrolled ? 'Manage your group in the Practical group section.' : 'Pick a group and enroll in the Practical group section.'}</p>
-            ) : (
-              enrollAction
-            )}
+            {enrollAction}
           </div>
         )}
         {canManage && (
@@ -162,10 +183,12 @@ function CourseDetail({ course }: { course: Course }) {
                 <Pencil aria-hidden="true" className="mr-2 size-4" />
                 Edit details
               </Button>
-              <Button variant="secondary" onClick={() => setArchived(!course.archived)}>
-                {course.archived ? <ArchiveRestore aria-hidden="true" className="mr-2 size-4" /> : <Archive aria-hidden="true" className="mr-2 size-4" />}
-                {course.archived ? 'Restore' : 'Archive'}
-              </Button>
+              {role !== 'instructor' && (
+                <Button variant="secondary" disabled={busy} onClick={() => void setArchived(!course.archived)}>
+                  {course.archived ? <ArchiveRestore aria-hidden="true" className="mr-2 size-4" /> : <Archive aria-hidden="true" className="mr-2 size-4" />}
+                  {course.archived ? 'Restore' : 'Archive'}
+                </Button>
+              )}
             </div>
           </div>
         )}
@@ -175,46 +198,39 @@ function CourseDetail({ course }: { course: Course }) {
       {editing && (
         <div className="mb-10">
           <CourseForm
-            initial={course}
+            initial={detail}
             onDone={(saved) => {
               setEditing(false)
-              if (saved) setMessage('Course details saved.')
+              if (saved) {
+                setMessage('Course details saved.')
+                void reload()
+              }
             }}
           />
         </div>
       )}
 
-      <Stats course={course} taken={taken} teaches={teaches} />
+      <Stats course={course} detail={detail} teaches={canManage} />
 
       <div className="grid gap-x-10 gap-y-10 lg:grid-cols-5">
         <div className="flex flex-col gap-10 lg:col-span-3">
-          {role === 'student' && !course.archived && groups.length > 0 && (
-            <StudentGroupPanel
-              course={course}
-              groups={groups}
-              lectures={lectures}
-              others={others}
-              selected={selectedGroup}
-              onSelect={setSelectedGroup}
-              enrolled={enrolled}
-              current={currentGroup}
-              footer={enrollAction}
-            />
-          )}
-          {role === 'student' && <StudentGrades course={course} enrolled={enrolled} />}
-          {canManage && !course.archived && groups.length > 0 && <GroupsPanel course={course} groups={groups} />}
-          {role === 'instructor' && (teaches ? <TeacherGrades course={course} /> : <NoAccess />)}
+          {role === 'student' && <StudentGrades course={course} detail={detail} enrolled={enrolled} />}
+          {role === 'instructor' && (canManage ? <TeacherGrades course={course} /> : <NoAccess />)}
+          {role === 'admin' && <TeacherGrades course={course} />}
           <Panel title="Grading scheme">
             <ul className="divide-y divide-rose">
               {course.gradingScheme.map((c) => (
                 <li key={c.name} className="flex items-center justify-between gap-4 py-2.5 first:pt-0 last:pb-0">
                   <span>{c.name}</span>
-                  <span className="font-semibold">{c.max} points</span>
+                  <span className="text-right">
+                    <span className="font-semibold">{c.max} points</span>
+                    {c.min > 0 && <span className="block text-sm text-ink-soft">at least {c.min} to pass</span>}
+                  </span>
                 </li>
               ))}
             </ul>
             <p className="mt-4 text-sm text-ink-soft">
-              Completion: {course.completionType.toLowerCase()}. The final score is the sum of all components, 0 to 100.
+              Completion: {course.completionType.toLowerCase()}. The final score is the sum of all components, 0 to 100. A component below its minimum gives FX.
             </p>
           </Panel>
           <Panel title="Topics">
@@ -242,21 +258,23 @@ function CourseDetail({ course }: { course: Course }) {
               <dt className="text-ink-soft">Teachers</dt>
               <dd>{teacherNames(course).join(', ')}</dd>
               <dt className="text-ink-soft">Student limit</dt>
-              <dd>{taken} of {course.studentLimit}</dd>
+              <dd>{taken} of {course.studentLimit}{course.waitlisted > 0 ? `, ${course.waitlisted} waiting` : ''}</dd>
               <dt className="text-ink-soft">Status</dt>
               <dd>{course.archived ? 'Archived, history is kept' : 'Active'}</dd>
             </dl>
           </Panel>
 
           <Panel title="Prerequisites">
-            {course.prerequisiteIds.length === 0 ? (
+            {detail.prerequisites.length === 0 ? (
               <p className="text-ink-soft">No prerequisites.</p>
             ) : (
               <ul className="divide-y divide-rose">
-                {course.prerequisiteIds.map((id) => (
-                  <li key={id} className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
-                    <span className="font-semibold"><CourseLink courseId={id} /></span>
-                    {role === 'student' && <Badge tone={done.has(id) ? 'solid' : 'outline'}>{done.has(id) ? 'Completed' : 'Not completed'}</Badge>}
+                {detail.prerequisites.map((p) => (
+                  <li key={p.id} className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
+                    <span className="font-semibold"><CourseLink courseId={p.id} /></span>
+                    {role === 'student' && (
+                      <Badge tone={unmet.some((u) => u.id === p.id) ? 'outline' : 'solid'}>{unmet.some((u) => u.id === p.id) ? 'Not completed' : 'Completed'}</Badge>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -268,11 +286,7 @@ function CourseDetail({ course }: { course: Course }) {
           {!course.archived && (
             <Panel
               title="Exam terms"
-              action={
-                canManage && !addingExam ? (
-                  <Button variant="secondary" onClick={() => setAddingExam(true)}>Add exam term</Button>
-                ) : undefined
-              }
+              action={canManage && !addingExam ? <Button variant="secondary" onClick={() => setAddingExam(true)}>Add exam term</Button> : undefined}
             >
               {courseExams.length === 0 ? (
                 <p className="text-ink-soft">No exam terms published yet.</p>
@@ -282,14 +296,14 @@ function CourseDetail({ course }: { course: Course }) {
                     <li key={e.id} className="flex items-start justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
                       <div>
                         <p className="font-semibold">{formatWeekdayDate(e.date)} at {e.start}</p>
-                        <p className="text-sm text-ink-soft">{e.term}, {e.format.toLowerCase()}, room {e.room}, {e.registered} of {e.capacity} registered</p>
+                        <p className="text-sm text-ink-soft">Term {e.term}, {e.format.toLowerCase()}, room {e.room}, {e.registered} of {e.capacity} registered</p>
                       </div>
                       {canManage && (
                         <Button
                           variant="secondary"
                           className="min-h-9 px-2"
-                          onClick={() => examsStore.set((prev) => prev.filter((x) => x.id !== e.id))}
-                          aria-label={`Remove ${e.term} on ${formatWeekdayDate(e.date)}`}
+                          onClick={() => void run(async () => { await deleteExam(e.id); return 'Exam term removed.' })}
+                          aria-label={`Remove term ${e.term} on ${formatWeekdayDate(e.date)}`}
                         >
                           <Trash2 aria-hidden="true" className="size-4" />
                         </Button>
@@ -306,19 +320,20 @@ function CourseDetail({ course }: { course: Course }) {
             </Panel>
           )}
 
-          <DocumentsPanel course={course} canUpload={canManage && !course.archived} />
+          <DocumentsPanel course={course} detail={detail} canUpload={canManage && !course.archived} reload={reload} />
         </div>
       </div>
     </>
   )
 }
 
-function Stats({ course, taken, teaches }: { course: Course; taken: number; teaches: boolean }) {
-  const { role } = useDemo()
-  const grades = useRosterGrades()
+function Stats({ course, detail, teaches }: { course: Course; detail: CourseDetailData; teaches: boolean }) {
+  const { role } = useApp()
+  const rosters = useCourseRosters(role === 'student' || !teaches ? [] : [course.id])
+  const taken = course.enrolled
   const credits = <StatCard key="cr" label="Credits" value={`${course.credits} ECTS`} hint={course.completionType} icon={BookOpen} />
   if (role === 'student') {
-    const s = summaryFor(course, gradeFor(course.id))
+    const s = summaryOf(course.gradingScheme, detail.myGrade)
     return (
       <StatGrid>
         {credits}
@@ -334,12 +349,10 @@ function Stats({ course, taken, teaches }: { course: Course; taken: number; teac
       </StatGrid>
     )
   }
-  const rows = grades[course.id]
-  const shares = rows
-    ? rows.map((r) => summarize(course.gradingScheme, r)).filter((s) => s.graded > 0).map((s) => percent(s.total, s.graded))
-    : []
+  const rows = rosters[course.id]
+  const shares = (rows ?? []).map((r) => summarize(course.gradingScheme, pointsFor(course.gradingScheme, r.components))).filter((s) => s.graded > 0).map((s) => percent(s.total, s.graded))
   const avg = shares.length ? Math.round(shares.reduce((a, b) => a + b, 0) / shares.length) : null
-  const visible = role === 'instructor' && teaches && avg !== null
+  const visible = teaches && avg !== null
   return (
     <StatGrid>
       {credits}
@@ -350,9 +363,9 @@ function Stats({ course, taken, teaches }: { course: Course; taken: number; teac
   )
 }
 
-function StudentGrades({ course, enrolled }: { course: Course; enrolled: boolean }) {
-  const grade = gradeFor(course.id)
-  const s = summaryFor(course, grade)
+function StudentGrades({ course, detail, enrolled }: { course: Course; detail: CourseDetailData; enrolled: boolean }) {
+  const grade = detail.myGrade
+  const s = summaryOf(course.gradingScheme, grade)
 
   if (!enrolled && !grade) {
     return (
@@ -362,18 +375,21 @@ function StudentGrades({ course, enrolled }: { course: Course; enrolled: boolean
     )
   }
 
-  type Row = { name: string; max: number; points: number | null; date?: string }
-  const rows: Row[] = course.gradingScheme.map((c, i) => ({ name: c.name, max: c.max, points: grade?.entries[i]?.points ?? null, date: grade?.entries[i]?.date }))
+  type Row = { name: string; max: number; min: number; points: number | null }
+  const points = pointsFor(course.gradingScheme, grade?.components)
+  const rows: Row[] = course.gradingScheme.map((c, i) => ({ name: c.name, max: c.max, min: c.min, points: points[i] ?? null }))
 
   const columns: Column<Row>[] = [
     { header: 'Component', rowHeader: true, cell: (r) => r.name },
-    { header: 'Date', cell: (r) => (r.date ? formatDate(r.date) : course.archived ? '-' : 'Pending') },
     { header: 'Points', cell: (r) => <span className="whitespace-nowrap">{r.points === null ? '-' : r.points} / {r.max}</span> },
+    { header: 'Minimum', cell: (r) => (r.min > 0 ? r.min : '-') },
     {
       header: 'Score',
       align: 'right',
       cell: (r) =>
-        r.points === null ? (
+        r.points !== null && r.points < r.min ? (
+          <Badge tone="outline">Below minimum</Badge>
+        ) : r.points === null ? (
           <Badge tone="outline">Not graded</Badge>
         ) : (
           <div className="ml-auto flex items-center gap-3">
@@ -404,17 +420,19 @@ function StudentGrades({ course, enrolled }: { course: Course; enrolled: boolean
       }
     >
       <DataTable caption={`Your grade components in ${course.name}`} columns={columns} rows={rows} getKey={(r) => r.name} />
-      {grade?.finalizedAt && <p className="px-6 pt-3 pb-3 text-sm text-ink-soft">Mark finalized on {formatDate(grade.finalizedAt)}.</p>}
     </Panel>
   )
 }
 
 function TeacherGrades({ course }: { course: Course }) {
-  const grades = useRosterGrades()
-  const sessionsAll = useSessions()
+  const rosters = useCourseRosters([course.id])
   const [editing, setEditing] = useState(false)
-  const rows = grades[course.id]
-  if (!rows) {
+  const [draft, setDraft] = useState<Record<string, string>>({})
+  const [message, setMessage] = useState('')
+  const [saving, setSaving] = useState(false)
+  const rows = rosters[course.id]
+  if (!rows) return <Panel title="Student grades"><p role="status">Loading students…</p></Panel>
+  if (rows.length === 0) {
     return (
       <Panel title="Student grades">
         <EmptyState title="No students yet">Grades appear here once students are enrolled.</EmptyState>
@@ -423,8 +441,44 @@ function TeacherGrades({ course }: { course: Course }) {
   }
   const scheme = course.gradingScheme
   const canEdit = !course.archived
-  const data = roster.map((s, i) => ({ ...s, index: i, row: rows[i], sum: summarize(scheme, rows[i]) }))
+  const key = (studentId: string, component: string) => `${studentId}|${component}`
+  const valueOf = (r: RosterRow, component: string) => draft[key(r.id, component)] ?? (r.components?.[component] !== undefined ? String(r.components[component]) : '')
+
+  const data = rows.map((r) => ({ ...r, sum: summaryOf(scheme, r) }))
   type Row = (typeof data)[number]
+
+  const save = async () => {
+    // Collect what changed, per student. A grade that was entered can be changed but not removed.
+    const changes = new Map<string, Record<string, number>>()
+    for (const r of rows) {
+      for (const c of scheme) {
+        const raw = draft[key(r.id, c.name)]
+        if (raw === undefined) continue
+        const before = r.components?.[c.name]
+        if (raw.trim() === '') {
+          if (before !== undefined) return setMessage(`${r.name}, ${c.name}: a saved grade cannot be cleared. Enter 0 instead.`)
+          continue
+        }
+        const n = Number(raw)
+        if (!Number.isFinite(n) || n < 0 || n > c.max) return setMessage(`${r.name}, ${c.name}: enter points from 0 to ${c.max}.`)
+        if (n === before) continue
+        changes.set(r.id, { ...(changes.get(r.id) ?? {}), [c.name]: n })
+      }
+    }
+    setSaving(true)
+    try {
+      for (const [studentId, components] of changes) await saveGrade(course.id, studentId, components)
+      await reloadRoster(course.id)
+      setDraft({})
+      setEditing(false)
+      setMessage(changes.size === 0 ? 'Nothing changed.' : `Saved grades for ${changes.size} ${changes.size === 1 ? 'student' : 'students'}.`)
+    } catch (e) {
+      await reloadRoster(course.id).catch(() => undefined)
+      setMessage(errorMessage(e))
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const columns: Column<Row>[] = [
     {
@@ -433,47 +487,32 @@ function TeacherGrades({ course }: { course: Course }) {
       cell: (s) => (
         <>
           {s.name}
-          <span className="block text-sm font-normal text-ink-soft">{s.id}</span>
+          <span className="block text-sm font-normal text-ink-soft">{s.email}</span>
         </>
       ),
     },
-    ...(rosterGroups[course.id]
-      ? [
-          {
-            header: 'Group',
-            cell: (s: Row) => {
-              const g = sessionsAll.find((x) => x.id === rosterGroups[course.id][s.index])
-              return g ? groupName(g) : '-'
-            },
-          } satisfies Column<Row>,
-        ]
-      : []),
-    ...scheme.map<Column<Row>>((c, j) => ({
-      header: c.name,
+    ...scheme.map<Column<Row>>((c) => ({
+      header: c.min > 0 ? `${c.name} (min ${c.min})` : c.name,
       cell: (s) =>
         editing ? (
           <input
             type="number"
             min={0}
             max={c.max}
-            value={s.row[j] ?? ''}
+            value={valueOf(s, c.name)}
             aria-label={`${s.name}, ${c.name}, out of ${c.max}`}
-            onChange={(e) => {
-              const raw = e.target.value
-              setRosterGrade(course.id, s.index, j, raw === '' ? null : Math.min(c.max, Math.max(0, Math.round(Number(raw)))))
-            }}
+            onChange={(e) => setDraft((d) => ({ ...d, [key(s.id, c.name)]: e.target.value }))}
             className="min-h-10 w-20 rounded-md border-2 border-wine bg-fog px-2 text-wine"
           />
         ) : (
-          <span className="whitespace-nowrap">{s.row[j] ?? '-'} / {c.max}</span>
+          <span className={`whitespace-nowrap ${s.components?.[c.name] !== undefined && s.components[c.name]! < c.min ? 'font-semibold underline decoration-wavy' : ''}`}>{s.components?.[c.name] ?? '-'} / {c.max}</span>
         ),
     })),
     { header: 'Total', cell: (s) => <span className="font-semibold whitespace-nowrap">{s.sum.total}{s.sum.complete ? ' / 100' : ''}</span> },
     {
       header: 'Mark',
       align: 'right',
-      cell: (s) =>
-        s.sum.mark ? <Badge tone={s.sum.mark === 'FX' ? 'outline' : 'solid'}>{s.sum.mark}</Badge> : <Badge tone="outline">In progress</Badge>,
+      cell: (s) => (s.sum.mark ? <Badge tone={s.sum.mark === 'FX' ? 'outline' : 'solid'}>{s.sum.mark}</Badge> : <Badge tone="outline">In progress</Badge>),
     },
   ]
 
@@ -495,9 +534,14 @@ function TeacherGrades({ course }: { course: Course }) {
         flush
         action={
           canEdit ? (
-            <Button variant={editing ? 'primary' : 'secondary'} onClick={() => setEditing((v) => !v)}>
-              {editing ? 'Done editing' : 'Edit grades'}
-            </Button>
+            editing ? (
+              <div className="flex gap-2">
+                <Button disabled={saving} onClick={() => void save()}>Save grades</Button>
+                <Button variant="secondary" disabled={saving} onClick={() => { setEditing(false); setDraft({}); setMessage('') }}>Cancel</Button>
+              </div>
+            ) : (
+              <Button variant="secondary" onClick={() => setEditing(true)}>Edit grades</Button>
+            )
           ) : (
             <Badge tone="outline">Archived, read-only</Badge>
           )
@@ -508,6 +552,7 @@ function TeacherGrades({ course }: { course: Course }) {
           Showing {data.length} of {course.enrolled} students.
           {editing && ' Leave a cell empty for work that is not graded yet. When every component has points, the total becomes the final score and the mark is set.'}
         </p>
+        <p role="alert" className="px-6 pb-3 font-semibold empty:hidden">{message}</p>
       </Panel>
       <Panel title={allComplete ? 'Mark distribution' : 'Results so far'}>
         <ul className="flex flex-col gap-3">
@@ -532,7 +577,7 @@ function NoAccess() {
   )
 }
 
-const DAY_ORDER = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+const DAY_ORDER = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 function TimetablePanel({ course, sessions }: { course: Course; sessions: ClassSession[] }) {
   const sorted = [...sessions].sort((a, b) => DAY_ORDER.indexOf(a.day) - DAY_ORDER.indexOf(b.day) || a.start.localeCompare(b.start))
@@ -547,7 +592,7 @@ function TimetablePanel({ course, sessions }: { course: Course; sessions: ClassS
           {sorted.map((s) => (
             <li key={s.id} className="py-2.5 first:pt-0 last:pb-0">
               <p className="font-semibold">{s.day} {s.start}-{s.end}</p>
-              <p className="text-sm text-ink-soft">{s.type}{s.group ? `, group ${s.group}` : ''}, room {s.room}, {teacherName(s.teacherId)}</p>
+              <p className="text-sm text-ink-soft">{s.type}, room {s.room}, {teacherName(s.teacherId)}</p>
             </li>
           ))}
         </ul>
@@ -558,29 +603,34 @@ function TimetablePanel({ course, sessions }: { course: Course; sessions: ClassS
 
 const MAX_KB = 10 * 1024
 
-function DocumentsPanel({ course, canUpload }: { course: Course; canUpload: boolean }) {
-  const docs = useDocuments().filter((d) => d.courseId === course.id)
+function DocumentsPanel({ course, detail, canUpload, reload }: { course: Course; detail: CourseDetailData; canUpload: boolean; reload: () => Promise<void> }) {
+  const docs = detail.documents
   const [kind, setKind] = useState<'Syllabus' | 'Material'>('Material')
   const [error, setError] = useState('')
 
-  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file) return
     if (!file.name.toLowerCase().endsWith('.pdf')) return setError('Only PDF files can be added.')
-    const kb = Math.max(1, Math.round(file.size / 1024))
-    if (kb > MAX_KB) return setError('The file is larger than 10 MB.')
-    setError('')
-    documentsStore.set((prev) => [
-      ...prev,
-      { id: `d-${Date.now()}`, courseId: course.id, name: file.name, kind, sizeKb: kb, uploadedAt: DEMO_TODAY, url: URL.createObjectURL(file) },
-    ])
+    if (Math.max(1, Math.round(file.size / 1024)) > MAX_KB) return setError('The file is larger than 10 MB.')
+    try {
+      await uploadCourseDocument(course.id, file, kind === 'Syllabus' ? 'syllabus' : 'material')
+      setError('')
+      await reload()
+    } catch (err) {
+      setError(errorMessage(err))
+    }
   }
 
-  const remove = (id: string) => {
-    const doc = docs.find((d) => d.id === id)
-    if (doc?.url) URL.revokeObjectURL(doc.url)
-    documentsStore.set((prev) => prev.filter((d) => d.id !== id))
+  const remove = async (fileId: string) => {
+    try {
+      await deleteFile(fileId)
+      setError('')
+      await reload()
+    } catch (err) {
+      setError(errorMessage(err))
+    }
   }
 
   return (
@@ -594,18 +644,18 @@ function DocumentsPanel({ course, canUpload }: { course: Course; canUpload: bool
               <div className="min-w-0">
                 <p className="flex items-center gap-2 font-semibold">
                   <FileText aria-hidden="true" className="size-4 shrink-0" />
-                  {d.url ? (
-                    <a href={d.url} target="_blank" rel="noreferrer" className="truncate underline underline-offset-4">{d.name}</a>
-                  ) : (
-                    <span className="truncate">{d.name}</span>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => download(`/files/${d.fileId}`, {}, d.name).catch((err) => setError(errorMessage(err)))}
+                    className="truncate underline underline-offset-4"
+                  >
+                    {d.name}
+                  </button>
                 </p>
-                <p className="text-sm text-ink-soft">
-                  {d.kind}, {d.sizeKb} KB, {formatDate(d.uploadedAt)}{d.url ? '' : ', demo file'}
-                </p>
+                <p className="text-sm text-ink-soft">{d.kind}, {d.sizeKb} KB</p>
               </div>
               {canUpload && (
-                <Button variant="secondary" className="min-h-9 px-2" onClick={() => remove(d.id)} aria-label={`Remove ${d.name}`}>
+                <Button variant="secondary" className="min-h-9 px-2" onClick={() => void remove(d.fileId)} aria-label={`Remove ${d.name}`}>
                   <Trash2 aria-hidden="true" className="size-4" />
                 </Button>
               )}
@@ -622,184 +672,14 @@ function DocumentsPanel({ course, canUpload }: { course: Course; canUpload: bool
               id="doc-upload"
               type="file"
               accept="application/pdf,.pdf"
-              onChange={onFile}
+              onChange={(e) => void onFile(e)}
               className={`${fieldClass} py-1.5 file:mr-3 file:rounded file:border-0 file:bg-wine file:px-3 file:py-1 file:font-semibold file:text-blush`}
             />
-            <p className="mt-1 text-sm text-ink-soft">PDF only, up to 10 MB. Files stay in your browser; nothing is uploaded.</p>
+            <p className="mt-1 text-sm text-ink-soft">PDF only, up to 10 MB.</p>
           </div>
-          <p role="alert" className="font-semibold">{error}</p>
         </div>
       )}
-    </Panel>
-  )
-}
-
-function StudentGroupPanel({
-  course,
-  groups,
-  lectures,
-  others,
-  selected,
-  onSelect,
-  enrolled,
-  current,
-  footer,
-}: {
-  course: Course
-  groups: ClassSession[]
-  lectures: ClassSession[]
-  others: ClassSession[]
-  selected: string
-  onSelect: (id: string) => void
-  enrolled: boolean
-  current: string | undefined
-  footer: React.ReactNode
-}) {
-  const { groupTaken, chooseGroup } = useDemo()
-  const [message, setMessage] = useState('')
-
-  return (
-    <Panel title="Practical group">
-      <fieldset>
-        <legend className="mb-3 text-ink-soft">
-          {enrolled ? 'You can move to another group while seats are free.' : 'Choose the practical group you will attend. Lectures are shared by everyone.'}
-        </legend>
-        <ul className="flex flex-col gap-3">
-          {groups.map((g) => {
-            const taken = groupTaken(g)
-            const cap = g.capacity ?? Infinity
-            const full = taken >= cap && g.id !== current
-            const clashWith = [...others, ...lectures].find((o) => sessionsOverlap(g, o))
-            const disabled = full || clashWith !== undefined
-            const checked = selected === g.id
-            return (
-              <li key={g.id}>
-                <label
-                  className={`flex gap-3 rounded-md border-2 p-3 ${checked ? 'border-wine bg-fog' : 'border-rose'} ${disabled ? 'opacity-70' : 'cursor-pointer'}`}
-                >
-                  <input
-                    type="radio"
-                    name={`group-${course.id}`}
-                    className="mt-1 size-5 shrink-0 accent-wine"
-                    checked={checked}
-                    disabled={disabled}
-                    onChange={() => onSelect(g.id)}
-                  />
-                  <span className="block">
-                    <span className="block font-semibold">
-                      {groupName(g)}: {slotLabel(g)}
-                    </span>
-                    <span className="block text-sm">
-                      {g.type}, room {g.room}
-                    </span>
-                    <span className="block text-sm">Led by {teacherName(g.teacherId)}</span>
-                    <span className="block text-sm text-ink-soft">
-                      {full ? 'Full' : cap === Infinity ? `${taken} students` : `${cap - taken} of ${cap} seats left`}
-                      {g.id === current ? ', your group' : ''}
-                    </span>
-                    {clashWith && (
-                      <span className="block text-sm font-semibold">
-                        Overlaps {getCourse(clashWith.courseId).name}, {slotLabel(clashWith)}
-                      </span>
-                    )}
-                  </span>
-                </label>
-              </li>
-            )
-          })}
-        </ul>
-      </fieldset>
-      <div className="mt-5 flex flex-wrap items-start gap-3 border-t border-rose pt-5">
-        {enrolled && (
-          <Button
-            variant="secondary"
-            disabled={!selected || selected === current}
-            onClick={() => {
-              chooseGroup(course.id, selected)
-              setMessage(`Moved to ${groupName(groups.find((g) => g.id === selected)!)}.`)
-            }}
-          >
-            Change group
-          </Button>
-        )}
-        {footer}
-      </div>
-      <p role="status" aria-live="polite" className="mt-3 font-semibold empty:hidden">{message}</p>
-    </Panel>
-  )
-}
-
-function GroupsPanel({ course, groups }: { course: Course; groups: ClassSession[] }) {
-  const { role, groupTaken, addNotice } = useDemo()
-  const [notifying, setNotifying] = useState<string | null>(null)
-  const [title, setTitle] = useState('')
-  const [body, setBody] = useState('')
-  const [sent, setSent] = useState('')
-
-  const canNotify = (g: ClassSession) => role === 'admin' || (role === 'instructor' && g.teacherId === INSTRUCTOR_ID)
-  const members = (g: ClassSession) => roster.filter((_, i) => rosterGroups[course.id]?.[i] === g.id)
-
-  const send = (e: React.FormEvent, g: ClassSession) => {
-    e.preventDefault()
-    addNotice({ title: title.trim(), body: body.trim(), scope: 'group', courseId: course.id, sessionId: g.id })
-    setSent(`Notice sent to ${groupTaken(g)} students in ${groupName(g)}.`)
-    setNotifying(null)
-    setTitle('')
-    setBody('')
-  }
-
-  return (
-    <Panel title="Practical groups">
-      <ul className="flex flex-col gap-5">
-        {groups.map((g) => {
-          const taken = groupTaken(g)
-          const list = members(g)
-          return (
-            <li key={g.id} className="rounded-md border-2 border-rose p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="font-semibold">
-                    {groupName(g)}: {slotLabel(g)}
-                  </p>
-                  <p className="text-sm">
-                    {g.type}, room {g.room}, led by {teacherName(g.teacherId)}
-                  </p>
-                </div>
-                {canNotify(g) && notifying !== g.id && (
-                  <Button variant="secondary" onClick={() => { setNotifying(g.id); setSent('') }} aria-label={`Notify ${groupName(g)}`}>
-                    <Send aria-hidden="true" className="mr-2 size-4" />
-                    Notify group
-                  </Button>
-                )}
-              </div>
-              <div className="mt-3 flex items-center gap-3 text-sm">
-                <div className="w-32">
-                  <ProgressBar value={taken} max={g.capacity ?? taken} label={`${groupName(g)} seats`} />
-                </div>
-                <span>{taken} of {g.capacity ?? taken} students</span>
-              </div>
-              {list.length > 0 && (
-                <p className="mt-2 text-sm text-ink-soft">
-                  Includes {list.map((m) => m.name).join(', ')}
-                  {taken > list.length ? ` and ${taken - list.length} more` : ''}.
-                </p>
-              )}
-              {notifying === g.id && (
-                <form onSubmit={(e) => send(e, g)} className="mt-4 flex flex-col gap-3 border-t border-rose pt-4">
-                  <TextField label={`Title for ${groupName(g)}`} value={title} onChange={setTitle} required />
-                  <TextAreaField label="Message" value={body} onChange={setBody} rows={3} />
-                  <p className="text-sm text-ink-soft">Only the {taken} students in this group will receive it.</p>
-                  <div className="flex flex-wrap gap-3">
-                    <Button type="submit" disabled={!title.trim() || !body.trim()}>Send to {groupName(g)}</Button>
-                    <Button variant="secondary" onClick={() => setNotifying(null)}>Cancel</Button>
-                  </div>
-                </form>
-              )}
-            </li>
-          )
-        })}
-      </ul>
-      <p role="status" aria-live="polite" className="mt-4 font-semibold empty:hidden">{sent}</p>
+      <p role="alert" className="mt-3 font-semibold empty:hidden">{error}</p>
     </Panel>
   )
 }

@@ -40,7 +40,7 @@ export function internalClashes(sessions: ClassSession[], mode: 'any' | 'resourc
       const b = sessions[j]
       if (!sessionsOverlap(a, b)) continue
       const room = sameRoom(a.room, b.room)
-      const teacher = a.teacherId === b.teacherId
+      const teacher = a.teacherId !== null && a.teacherId === b.teacherId
       if (mode === 'any') out.push({ a, b, why: 'Overlapping times' })
       else if (room || teacher) out.push({ a, b, why: room && teacher ? `Same room (${a.room}) and same teacher` : room ? `Same room (${a.room})` : 'Same teacher' })
     }

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { login as apiLogin, logout as apiLogout, onSignedOut, restoreSession, verifyTwoFactor, type AuthUser } from '../lib/api';
+import { api, login as apiLogin, logout as apiLogout, onSignedOut, restoreSession, verifyTwoFactor, type AuthUser } from '../lib/api';
 
 type Role = AuthUser['role'];
 interface AuthState {
@@ -9,6 +9,8 @@ interface AuthState {
   signIn(email: string, password: string): Promise<'ok' | { challengeToken: string }>;
   verifyCode(challengeToken: string, code: string): Promise<void>;
   signOut(): Promise<void>;
+  /** Re-reads the signed-in user (after the profile was edited). */
+  refreshUser(): Promise<void>;
   /** super_admin counts as admin, mirroring the backend. */
   hasRole(...roles: Role[]): boolean;
 }
@@ -33,12 +35,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return 'ok';
   }, []);
   const verifyCode = useCallback<AuthState['verifyCode']>(async (c, code) => { setUser(await verifyTwoFactor(c, code)); }, []);
-  const signOut = useCallback(async () => { await apiLogout(); setUser(null); }, []);
+  const signOut = useCallback(async () => { await apiLogout().catch(() => undefined); setUser(null); }, []);
+  const refreshUser = useCallback(async () => { setUser(await api<AuthUser>('/users/me')); }, []);
 
   const value = useMemo<AuthState>(() => ({
-    user, loading, signIn, verifyCode, signOut,
+    user, loading, signIn, verifyCode, signOut, refreshUser,
     hasRole: (...roles) => !!user && (roles.includes(user.role) || (user.role === 'super_admin' && roles.includes('admin'))),
-  }), [user, loading, signIn, verifyCode, signOut]);
+  }), [user, loading, signIn, verifyCode, signOut, refreshUser]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

@@ -38,7 +38,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'calendar', label: 'Calendar', icon: CalendarRange, roles: INSTITUTION },
   { id: 'notices', label: 'Notices', icon: Bell, roles: INSTITUTION },
   { id: 'instructor', label: 'Instructor panel', icon: Presentation, roles: ['instructor'] },
-  { id: 'users', label: 'Users', icon: Users, roles: ['admin'] },
+  { id: 'users', label: 'Users', icon: Users, roles: ['admin', 'superadmin'] },
   { id: 'organization', label: 'Organization', icon: Network, roles: ['admin'] },
   { id: 'profile', label: 'Profile', icon: UserCog, roles: ALL },
 ]

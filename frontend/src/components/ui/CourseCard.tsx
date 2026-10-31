@@ -2,7 +2,6 @@ import { ArrowRight, Users } from 'lucide-react'
 import { teacherNames } from '../../data/selectors'
 import type { Course } from '../../data/types'
 import { courseHref } from '../../lib/router'
-import { useDemo } from '../../state/DemoContext'
 import { Badge } from './Badge'
 import { ProgressBar } from './ProgressBar'
 
@@ -13,8 +12,7 @@ interface CourseCardProps {
 }
 
 export function CourseCard({ course, status }: CourseCardProps) {
-  const { seatsTaken } = useDemo()
-  const taken = seatsTaken(course)
+  const taken = course.enrolled
   const full = taken >= course.studentLimit
   const seatsLeft = course.studentLimit - taken
   return (

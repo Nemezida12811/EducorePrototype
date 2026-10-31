@@ -1,58 +1,48 @@
 import { useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { ExamForm } from '../components/forms/ExamForm'
-import { examsStore } from '../data/stores'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
+import { CourseLink } from '../components/ui/CourseLink'
 import { DataTable, type Column } from '../components/ui/DataTable'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Panel } from '../components/ui/Panel'
 import { ProgressBar } from '../components/ui/ProgressBar'
-import { initialRegisteredExamIds } from '../data/demo'
-import { getCourse } from '../data/selectors'
-import { useMine } from '../state/useMine'
-import { CourseLink } from '../components/ui/CourseLink'
+import { cancelExamRegistration, deleteExam, errorMessage, registerForExam } from '../data/actions'
+import { findCourse } from '../data/selectors'
 import type { Exam } from '../data/types'
-import { examsOverlap } from '../lib/conflicts'
 import { formatWeekdayDate } from '../lib/format'
-import { useDemo } from '../state/DemoContext'
+import { useApp } from '../state/AppContext'
+import { useMine } from '../state/useMine'
 
-const courseCell = (e: Exam) => {
-  const c = getCourse(e.courseId)
-  return (
-    <>
-      <CourseLink courseId={c.id} />
-      <span className="block text-sm font-normal text-ink-soft">{c.code}</span>
-    </>
-  )
-}
+const courseCell = (e: Exam) => (
+  <>
+    <CourseLink courseId={e.courseId} />
+    <span className="block text-sm font-normal text-ink-soft">{findCourse(e.courseId)?.code}</span>
+  </>
+)
 
 export function ExamsPage() {
-  const { role, registeredExamIds, toggleExamRegistration } = useDemo()
+  const { role } = useApp()
   const [message, setMessage] = useState('')
   const { exams, courses } = useMine()
   const [adding, setAdding] = useState(false)
   const student = role === 'student'
+  const nameOf = (e: Exam) => findCourse(e.courseId)?.name ?? 'the course'
 
-  const onToggle = (exam: Exam) => {
-    const name = getCourse(exam.courseId).name
-    if (!registeredExamIds.has(exam.id)) {
-      const clash = exams.find((x) => x.id !== exam.id && registeredExamIds.has(x.id) && examsOverlap(x, exam))
-      if (clash) {
-        setMessage(`Cannot register for ${name}: it overlaps ${getCourse(clash.courseId).name} on ${formatWeekdayDate(clash.date)} at ${clash.start}.`)
-        return
-      }
+  const run = async (action: () => Promise<void>, ok: string) => {
+    try {
+      await action()
+      setMessage(ok)
+    } catch (e) {
+      setMessage(errorMessage(e))
     }
-    setMessage(registeredExamIds.has(exam.id) ? `Registration cancelled for ${name}.` : `Registered for ${name}.`)
-    toggleExamRegistration(exam.id)
   }
 
-  /** Static seat count, adjusted by the demo student's own change since load. */
-  const seatsTaken = (exam: Exam) => {
-    const now = registeredExamIds.has(exam.id)
-    const before = initialRegisteredExamIds.includes(exam.id)
-    return exam.registered + (now ? 1 : 0) - (before ? 1 : 0)
-  }
+  const onToggle = (exam: Exam) =>
+    exam.registeredByMe
+      ? run(() => cancelExamRegistration(exam.id), `Registration cancelled for ${nameOf(exam)}.`)
+      : run(() => registerForExam(exam.id), `Registered for ${nameOf(exam)}.`)
 
   const common: Column<Exam>[] = [
     { header: 'Date', rowHeader: true, cell: (e) => formatWeekdayDate(e.date) },
@@ -64,7 +54,7 @@ export function ExamsPage() {
         <>
           {e.format}
           <span className="block text-sm whitespace-nowrap text-ink-soft">
-            {e.term}, room {e.room}
+            Term {e.term}, room {e.room}
           </span>
         </>
       ),
@@ -73,20 +63,19 @@ export function ExamsPage() {
 
   const studentColumns: Column<Exam>[] = [
     ...common,
-    { header: 'Seats taken', cell: (e) => `${seatsTaken(e)} of ${e.capacity}` },
+    { header: 'Seats taken', cell: (e) => `${e.registered} of ${e.capacity}` },
     {
       header: 'Registration',
       align: 'right',
       cell: (e) => {
-        const registered = registeredExamIds.has(e.id)
-        if (e.registration === 'closed' && !registered) return <Badge tone="outline">Closed</Badge>
+        if (e.registration === 'closed' && !e.registeredByMe) return <Badge tone="outline">Closed</Badge>
         return (
           <Button
-            variant={registered ? 'secondary' : 'primary'}
-            onClick={() => onToggle(e)}
-            aria-label={`${registered ? 'Cancel registration for' : 'Register for'} ${getCourse(e.courseId).name}, ${e.term}`}
+            variant={e.registeredByMe ? 'secondary' : 'primary'}
+            onClick={() => void onToggle(e)}
+            aria-label={`${e.registeredByMe ? 'Cancel registration for' : 'Register for'} ${nameOf(e)}, term ${e.term}`}
           >
-            {registered ? 'Cancel' : 'Register'}
+            {e.registeredByMe ? 'Cancel' : 'Register'}
           </Button>
         )
       },
@@ -94,19 +83,18 @@ export function ExamsPage() {
     {
       header: 'Status',
       align: 'right',
-      cell: (e) =>
-        registeredExamIds.has(e.id) ? <Badge tone="solid">Registered</Badge> : <Badge tone="soft">Not registered</Badge>,
+      cell: (e) => (e.registeredByMe ? <Badge tone="solid">Registered</Badge> : <Badge tone="soft">Not registered</Badge>),
     },
   ]
 
-  const instructorColumns: Column<Exam>[] = [
+  const staffColumns: Column<Exam>[] = [
     ...common,
     {
       header: 'Registered',
       cell: (e) => (
         <div className="flex items-center gap-3">
           <div className="w-20">
-            <ProgressBar value={e.registered} max={e.capacity} label={`${getCourse(e.courseId).name} registrations`} />
+            <ProgressBar value={e.registered} max={e.capacity} label={`${nameOf(e)} registrations`} />
           </div>
           <span className="whitespace-nowrap">
             {e.registered} of {e.capacity}
@@ -126,8 +114,8 @@ export function ExamsPage() {
         <Button
           variant="secondary"
           className="min-h-9 px-2"
-          onClick={() => examsStore.set((prev) => prev.filter((x) => x.id !== e.id))}
-          aria-label={`Remove ${getCourse(e.courseId).name}, ${e.term}, ${formatWeekdayDate(e.date)}`}
+          onClick={() => void run(() => deleteExam(e.id), 'Exam term removed.')}
+          aria-label={`Remove ${nameOf(e)}, term ${e.term}, ${formatWeekdayDate(e.date)}`}
         >
           <Trash2 aria-hidden="true" className="size-4" />
         </Button>
@@ -141,7 +129,7 @@ export function ExamsPage() {
         title="Exams"
         description={
           student
-            ? 'Register for exam terms in the winter exam period. You can cancel while registration is open.'
+            ? 'Register for exam terms of your courses. You can cancel while registration is open.'
             : role === 'instructor'
               ? 'Exam terms for your courses and how many students have registered.'
               : 'All exam terms of the institution and how many students have registered.'
@@ -155,7 +143,7 @@ export function ExamsPage() {
         </div>
       )}
       <Panel
-        title="Winter exam period"
+        title="Exam terms"
         flush
         action={
           !student && !adding ? (
@@ -166,12 +154,7 @@ export function ExamsPage() {
           ) : undefined
         }
       >
-        <DataTable
-          caption="Exam terms"
-          columns={student ? studentColumns : instructorColumns}
-          rows={exams}
-          getKey={(e) => e.id}
-        />
+        <DataTable caption="Exam terms" columns={student ? studentColumns : staffColumns} rows={exams} getKey={(e) => e.id} />
       </Panel>
       <p className="mt-4 text-rose empty:hidden" role="status" aria-live="polite">
         {message}
