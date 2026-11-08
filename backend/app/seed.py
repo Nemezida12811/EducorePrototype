@@ -4,12 +4,16 @@ from sqlalchemy import func, select
 from .config import get_settings
 from .db import Base, SessionLocal, engine
 from .models import (Announcement, CalendarEvent, Course, CoursePrerequisite, CourseSession, CourseTeacher, Department, Enrollment,
-                     EnrollmentStatus, ExamTerm, Grade, Institution, Role, StudyPlanItem, StudyProgram, User, now)
+                     EnrollmentStatus, ExamTerm, Grade, Institution, Role, Room, RoomDepartment, RoomKind, StudyPlanItem, StudyProgram, User, now)
+from .rooms_data import ROOMS
 from .security import hash_password
 from .services import compute_final
 
 settings = get_settings()
-SCHEME = [{"name": "Midterm", "maxPoints": 30}, {"name": "Project", "maxPoints": 30}, {"name": "Exam", "maxPoints": 40}]
+SCHEME = [{"name": "Midterm", "maxPoints": 30, "minPoints": 0}, {"name": "Project", "maxPoints": 30, "minPoints": 0}, {"name": "Exam", "maxPoints": 40, "minPoints": 15}]
+
+
+DEMO_ROOMS = [(code, "", kind, cap) for code, kind, cap in ROOMS]  # the institution's rooms, all in the demo department
 
 
 def run_seed(db) -> str:
@@ -22,6 +26,8 @@ def run_seed(db) -> str:
         return f'Production seed: institution "{inst.name}" and super admin {root.email} created. Change the password immediately.'
 
     dept = Department(code="KPI", name="Department of Computers and Informatics"); db.add(dept); db.flush()
+    for code, building, kind, cap in DEMO_ROOMS:
+        r = Room(code=code, building=building, kind=kind, capacity=cap); db.add(r); db.flush(); db.add(RoomDepartment(room_id=r.id, department_id=dept.id))
     prog = StudyProgram(name="Informatics", department_id=dept.id, degree="Bc.", credits_required=180); db.add(prog); db.flush()
 
     def mk(email, first, last, role):
@@ -44,10 +50,10 @@ def run_seed(db) -> str:
     ads2 = course("ADS2", "Algorithms and data structures 2", t1)
     db1 = course("DB1", "Databases", t2, capacity=2)
     db.add(CoursePrerequisite(course_id=ads2.id, prerequisite_id=oop.id))
-    db.add_all([CourseSession(course_id=ads2.id, kind="lecture", day_of_week=1, start_time="09:00", end_time="10:40", room="B-201", teacher_id=t1.id),
-                CourseSession(course_id=ads2.id, kind="lab", day_of_week=3, start_time="13:00", end_time="14:40", room="LAB-3", teacher_id=t1.id),
-                CourseSession(course_id=db1.id, kind="lecture", day_of_week=2, start_time="11:00", end_time="12:40", room="B-105", teacher_id=t2.id)])
-    db.add(ExamTerm(course_id=ads2.id, date="2027-01-20", time="09:00", room="B-201", format="written", term=1, capacity=30))
+    db.add_all([CourseSession(course_id=ads2.id, kind="lecture", day_of_week=1, start_time="09:00", end_time="10:40", room="Meridian", teacher_id=t1.id),
+                CourseSession(course_id=ads2.id, kind="lab", day_of_week=3, start_time="13:00", end_time="14:40", room="PK6_PC1", teacher_id=t1.id),
+                CourseSession(course_id=db1.id, kind="lecture", day_of_week=2, start_time="11:00", end_time="12:40", room="Hyperion", teacher_id=t2.id)])
+    db.add(ExamTerm(course_id=ads2.id, date="2027-01-20", time="09:00", room="Meridian", format="written", term=1, capacity=30))
     db.add_all([StudyPlanItem(study_program_id=prog.id, course_id=oop.id, semester_no=1), StudyPlanItem(study_program_id=prog.id, course_id=ads2.id, semester_no=3),
                 StudyPlanItem(study_program_id=prog.id, course_id=db1.id, semester_no=3)])
     comps = {"Midterm": 24, "Project": 26, "Exam": 33}
@@ -56,7 +62,7 @@ def run_seed(db) -> str:
     E = EnrollmentStatus
     # DB1 has capacity 2, so student3 starts on the waitlist
     for c, s, st in [(oop, s1, E.enrolled), (ads2, s1, E.enrolled), (ads2, s2, E.enrolled), (db1, s1, E.enrolled), (db1, s2, E.enrolled), (db1, s3, E.waitlisted)]:
-        db.add(Enrollment(course_id=c.id, student_id=s.id, status=st)); db.flush()  # flush keeps created_at ordering stable
+        db.add(Enrollment(course_id=c.id, student_id=s.id, status=st, group_no=1 if st == EnrollmentStatus.enrolled else None)); db.flush()  # flush keeps created_at ordering stable
     db.add(Announcement(author_id=t1.id, title="Welcome to the new semester", body="Lectures start on Monday."))
     db.add(CalendarEvent(title="Enrollment deadline", kind="deadline", starts_at=now().replace(year=2026, month=9, day=20, hour=23, minute=59), created_by=root.id))
     db.commit()

@@ -20,6 +20,7 @@ export function CourseCard({ course, status }: CourseCardProps) {
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <span className="font-semibold">{course.code}</span>
         {course.archived && <Badge tone="outline">Archived</Badge>}
+        {course.status === 'draft' && <Badge tone="outline">Draft</Badge>}
         {!course.archived && full && <Badge tone="solid">Full</Badge>}
         {status && <Badge tone="soft">{status}</Badge>}
       </div>

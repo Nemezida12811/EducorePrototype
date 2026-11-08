@@ -103,13 +103,14 @@ def course_grades(course_id: str, p: Principal = Depends(authenticate), db: Sess
     if not can_manage_course(db, p, course_id): raise forbidden()
     c = db.get(Course, course_id)
     if not c: raise not_found("Course")
-    rows = db.execute(select(User, Grade).join(Enrollment, Enrollment.student_id == User.id)
+    rows = db.execute(select(User, Grade, Enrollment).join(Enrollment, Enrollment.student_id == User.id)
                       .outerjoin(Grade, (Grade.course_id == Enrollment.course_id) & (Grade.student_id == Enrollment.student_id))
                       .where(Enrollment.course_id == course_id, Enrollment.status == EnrollmentStatus.enrolled).order_by(User.last_name)).all()
     return {"gradingScheme": c.grading_scheme, "archived": c.archived,
-            "items": [{"studentId": u.id, "firstName": u.first_name, "lastName": u.last_name, "email": u.email, "gradeId": g.id if g else None,
+            "groupCount": c.group_count,
+            "items": [{"studentId": u.id, "enrollmentId": e.id, "group": e.group_no, "firstName": u.first_name, "lastName": u.last_name, "email": u.email, "gradeId": g.id if g else None,
                        "components": g.components if g else None, "finalScore": g.final_score if g else None, "mark": g.mark if g else None,
-                       "updatedAt": g.d()["updatedAt"] if g else None} for u, g in rows]}
+                       "updatedAt": g.d()["updatedAt"] if g else None} for u, g, e in rows]}
 
 
 @router.get("/grades/{grade_id}/history")

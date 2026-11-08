@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..errors import forbidden, not_found
-from ..models import Announcement, Course, CourseTeacher, Enrollment, EnrollmentStatus, Notification, Role, User, now
+from ..models import Announcement, AnnouncementRead, Course, CourseTeacher, Enrollment, EnrollmentStatus, Notification, Role, User, now
 from ..schemas import CamelModel
 from ..security import Principal, authenticate, can_manage_course, require_roles, role_allowed
 from ..services import Page, audit, emit, notify_users
@@ -27,20 +27,63 @@ class ChannelsIn(CamelModel):
     push: bool
 
 
+def _visible(p: Principal, db: Session) -> list:
+    """Conditions selecting the announcements this user may see."""
+    if role_allowed(p.role, [Role.admin]): return []
+    ids = (select(Enrollment.course_id).where(Enrollment.student_id == p.user_id, Enrollment.status == EnrollmentStatus.enrolled)
+           if p.role == Role.student else select(CourseTeacher.course_id).where(CourseTeacher.user_id == p.user_id))
+    return [or_(Announcement.course_id.is_(None), Announcement.course_id.in_(ids))]
+
+
+def _unread(p: Principal) -> list:
+    """Not read yet and not written by the caller."""
+    return [~Announcement.id.in_(select(AnnouncementRead.announcement_id).where(AnnouncementRead.user_id == p.user_id)),
+            or_(Announcement.author_id.is_(None), Announcement.author_id != p.user_id)]
+
+
 @router.get("/announcements")
 def list_announcements(page: Page = Depends(), course_id: str | None = Query(None, alias="courseId"),
                        p: Principal = Depends(authenticate), db: Session = Depends(get_db)):
-    conds = []
-    if not role_allowed(p.role, [Role.admin]):
-        ids = (select(Enrollment.course_id).where(Enrollment.student_id == p.user_id, Enrollment.status == EnrollmentStatus.enrolled)
-               if p.role == Role.student else select(CourseTeacher.course_id).where(CourseTeacher.user_id == p.user_id))
-        conds.append(or_(Announcement.course_id.is_(None), Announcement.course_id.in_(ids)))
-    if course_id: conds.append(Announcement.course_id == course_id)
+    visible = _visible(p, db)
+    conds = visible + ([Announcement.course_id == course_id] if course_id else [])
     total = db.scalar(select(func.count()).select_from(Announcement).where(*conds))
-    rows = db.execute(select(Announcement, Course.name, User.last_name).outerjoin(Course, Course.id == Announcement.course_id)
+    rows = db.execute(select(Announcement, Course.name, User.first_name, User.last_name).outerjoin(Course, Course.id == Announcement.course_id)
                       .outerjoin(User, User.id == Announcement.author_id).where(*conds).order_by(Announcement.created_at.desc())
                       .limit(page.page_size).offset(page.offset)).all()
-    return page.wrap([{**a.d(), "courseName": cn, "authorName": an} for a, cn, an in rows], total)
+    read = set(db.scalars(select(AnnouncementRead.announcement_id).where(AnnouncementRead.user_id == p.user_id)))
+    unread = db.scalar(select(func.count()).select_from(Announcement).where(*visible, *_unread(p)))
+    return {**page.wrap([{**a.d(), "courseName": cn, "authorName": f"{fn} {ln}".strip() if ln else None,
+                          "read": a.id in read or a.author_id == p.user_id} for a, cn, fn, ln in rows], total), "unreadCount": unread}
+
+
+def _load_visible(db: Session, p: Principal, announcement_id: str) -> Announcement:
+    a = db.scalars(select(Announcement).where(Announcement.id == announcement_id, *_visible(p, db))).first()
+    if not a: raise not_found("Announcement")
+    return a
+
+
+@router.put("/announcements/{announcement_id}/read", status_code=204)
+def mark_announcement_read(announcement_id: str, p: Principal = Depends(authenticate), db: Session = Depends(get_db)):
+    _load_visible(db, p, announcement_id)
+    if not db.get(AnnouncementRead, (announcement_id, p.user_id)): db.add(AnnouncementRead(announcement_id=announcement_id, user_id=p.user_id))
+    db.commit()
+    return Response(status_code=204)
+
+
+@router.delete("/announcements/{announcement_id}/read", status_code=204)
+def mark_announcement_unread(announcement_id: str, p: Principal = Depends(authenticate), db: Session = Depends(get_db)):
+    _load_visible(db, p, announcement_id)
+    r = db.get(AnnouncementRead, (announcement_id, p.user_id))
+    if r: db.delete(r)
+    db.commit()
+    return Response(status_code=204)
+
+
+@router.post("/announcements/read-all", status_code=204)
+def mark_all_announcements_read(p: Principal = Depends(authenticate), db: Session = Depends(get_db)):
+    for aid in db.scalars(select(Announcement.id).where(*_visible(p, db), *_unread(p))): db.add(AnnouncementRead(announcement_id=aid, user_id=p.user_id))
+    db.commit()
+    return Response(status_code=204)
 
 
 @router.post("/announcements", status_code=201)

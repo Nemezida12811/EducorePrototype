@@ -8,9 +8,9 @@ from sqlalchemy.exc import IntegrityError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import get_settings
-from .db import Base, engine
+from .db import Base, engine, upgrade_schema
 from .errors import AppError
-from .routers import audit, auth, billing, courses, enrollments, files, grades, institutions, integrations, notices, org, reports, schedule, users
+from .routers import audit, auth, billing, courses, enrollments, files, grades, institutions, integrations, notices, org, reports, rooms, schedule, users
 
 settings = get_settings()
 
@@ -19,6 +19,7 @@ settings = get_settings()
 async def lifespan(_: FastAPI):
     from . import models  # noqa: F401  (register tables)
     Base.metadata.create_all(engine)  # simple schema bootstrap; use Alembic once the schema starts evolving
+    upgrade_schema()  # adds columns introduced after the database was created
     yield
 
 
@@ -72,5 +73,5 @@ async def _unhandled(_: Request, e: Exception):
 def health(): return {"status": "ok"}
 
 
-for r in (auth, users, institutions, courses, enrollments, grades, schedule, notices, files, reports, audit, billing, integrations, org):
+for r in (auth, users, institutions, courses, enrollments, grades, schedule, notices, files, reports, audit, billing, integrations, org, rooms):
     app.include_router(r.router, prefix="/api/v1")

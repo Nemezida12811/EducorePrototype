@@ -1,12 +1,12 @@
 /** Loads the signed-in user's data from the API into the stores. Each refresh* can also be called after a mutation. */
 import { api } from '../lib/api'
 import {
-  mapCourse, mapEnrollment, mapEvent, mapExam, mapGrade, mapNotice, mapOrgUnit, mapPlan, mapPlatform, mapProgram, mapRosterRow, mapSession, mapTeacher,
+  mapCourse, mapEnrollment, mapEvent, mapExam, mapGrade, mapNotice, mapOrgUnit, mapPlan, mapPlatform, mapProgram, mapRoom, mapRosterRow, mapSession, mapTeacher,
   mapUser, type Dto,
 } from './mappers'
 import {
   allSessionsStore, coursesStore, directoryStore, enrollmentsStore, eventsStore, examsStore, gradesStore, institutionStore, noticesStore, orgUnitsStore,
-  planStore, platformStore, programsStore, rostersStore, sessionsStore, teachersStore,
+  planStore, platformStore, programsStore, roomsStore, rostersStore, sessionsStore, teachersStore,
 } from './stores'
 import type { Role } from './types'
 
@@ -25,6 +25,7 @@ export const refreshCourses = async () => coursesStore.set((await fetchAll('/cou
 export const refreshSessions = async () => sessionsStore.set((await api<{ items: Dto[] }>('/schedule/me')).items.map((s) => mapSession(s)))
 export const refreshAllSessions = async () => allSessionsStore.set((await api<{ items: Dto[] }>('/schedule/all')).items.map((s) => mapSession(s)))
 export const refreshExams = async () => examsStore.set((await api<{ items: Dto[] }>('/exams')).items.map((x) => mapExam(x)))
+export const refreshRooms = async () => roomsStore.set((await api<{ items: Dto[] }>('/rooms?active=all')).items.map(mapRoom))
 export const refreshTeachers = async () => teachersStore.set((await api<{ items: Dto[] }>('/teachers')).items.map(mapTeacher))
 export const refreshNotices = async () => noticesStore.set((await fetchAll('/announcements')).map(mapNotice))
 export const refreshEvents = async () => eventsStore.set((await api<{ items: Dto[] }>('/calendar/events')).items.map(mapEvent))
@@ -61,7 +62,7 @@ export async function loadRoster(courseId: string) {
 
 /** Everything a role needs for its pages, loaded in parallel. */
 export async function loadAll(role: Role) {
-  const common = [refreshInstitution(), refreshCourses(), refreshSessions(), refreshExams(), refreshNotices(), refreshEvents(), refreshOrg()]
+  const common = [refreshInstitution(), refreshCourses(), refreshSessions(), refreshExams(), refreshNotices(), refreshEvents(), refreshOrg(), refreshRooms()]
   const byRole: Promise<unknown>[] = []
   if (role === 'student') byRole.push(refreshEnrollments(), refreshGrades(), refreshPlan(), refreshTeachers())
   if (role === 'instructor') byRole.push(refreshTeachers(), refreshAllSessions())

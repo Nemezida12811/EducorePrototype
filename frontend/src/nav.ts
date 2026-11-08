@@ -1,4 +1,5 @@
 import {
+  DoorOpen,
   BookOpen,
   Bell,
   CalendarDays,
@@ -40,6 +41,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'instructor', label: 'Instructor panel', icon: Presentation, roles: ['instructor'] },
   { id: 'users', label: 'Users', icon: Users, roles: ['admin', 'superadmin'] },
   { id: 'organization', label: 'Organization', icon: Network, roles: ['admin'] },
+  { id: 'rooms', label: 'Rooms', icon: DoorOpen, roles: ['admin', 'superadmin'] },
   { id: 'profile', label: 'Profile', icon: UserCog, roles: ALL },
 ]
 

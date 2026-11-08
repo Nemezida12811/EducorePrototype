@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Request
 from pydantic import Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
@@ -72,7 +72,9 @@ def update_department(dept_id: str, body: DeptUpdate, request: Request, db: Sess
 
 @router.get("/study-programs")
 def programs(_: Principal = Depends(authenticate), db: Session = Depends(get_db)):
-    return {"items": [p.d() for p in db.scalars(select(StudyProgram).order_by(StudyProgram.name))]}
+    counts = dict(db.execute(select(User.study_program_id, func.count()).where(User.role == Role.student, User.active.is_(True),
+                                                                              User.study_program_id.is_not(None)).group_by(User.study_program_id)).all())
+    return {"items": [{**p.d(), "students": counts.get(p.id, 0)} for p in db.scalars(select(StudyProgram).order_by(StudyProgram.name))]}
 
 
 @router.post("/study-programs", status_code=201)

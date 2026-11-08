@@ -3,9 +3,15 @@ import { CourseCard } from '../components/ui/CourseCard'
 import { EmptyState } from '../components/ui/EmptyState'
 import { FilterTabs } from '../components/ui/FilterTabs'
 import { PageHeader } from '../components/ui/PageHeader'
-import { Plus } from 'lucide-react'
+import { Copy, Plus } from 'lucide-react'
 import { CourseForm } from '../components/forms/CourseForm'
 import { Button } from '../components/ui/Button'
+import { SelectField } from '../components/ui/Field'
+import { Panel } from '../components/ui/Panel'
+import { errorMessage } from '../data/actions'
+import { mapCourseDetail } from '../data/mappers'
+import type { CourseDetailData } from '../data/types'
+import { api } from '../lib/api'
 import { useCourses } from '../data/stores'
 import { courseHref } from '../lib/router'
 import { useApp } from '../state/AppContext'
@@ -42,10 +48,12 @@ const DESCRIPTIONS = {
 }
 
 export function CoursesPage() {
-  const { role, enrolledIds, waitlistIds } = useApp()
+  const { role, user, enrolledIds, waitlistIds } = useApp()
   const { ids: mine } = useMine()
   const courses = useCourses()
   const [creating, setCreating] = useState(false)
+  const [picking, setPicking] = useState(false)
+  const [template, setTemplate] = useState<CourseDetailData | undefined>()
   const canCreate = role === 'instructor' || role === 'admin'
   const [chosen, setChosen] = useState<Filter>('mine')
   const options = OPTIONS[role] as readonly { value: Filter; label: string }[]
@@ -73,20 +81,42 @@ export function CoursesPage() {
         action={
           <div className="flex flex-wrap items-center gap-3">
             <FilterTabs label="Filter courses" options={[...options]} value={filter} onChange={setChosen} />
-            {canCreate && !creating && (
-              <Button className="bg-blush" variant="secondary" onClick={() => setCreating(true)}>
-                <Plus aria-hidden="true" className="mr-2 size-4" />
-                New course
-              </Button>
+            {canCreate && !creating && !picking && (
+              <>
+                <Button className="bg-blush" variant="secondary" onClick={() => setCreating(true)}>
+                  <Plus aria-hidden="true" className="mr-2 size-4" />
+                  New course
+                </Button>
+                <Button className="bg-blush" variant="secondary" onClick={() => setPicking(true)}>
+                  <Copy aria-hidden="true" className="mr-2 size-4" />
+                  Create based on…
+                </Button>
+              </>
             )}
           </div>
         }
       />
+      {picking && (
+        <div className="mb-10">
+          <TemplatePicker
+            courses={courses.filter((c) => role !== 'instructor' || c.teacherIds.includes(user.id) || !c.archived)}
+            onCancel={() => setPicking(false)}
+            onPicked={(detail) => {
+              setPicking(false)
+              setTemplate(detail)
+              setCreating(true)
+            }}
+          />
+        </div>
+      )}
       {creating && (
         <div className="mb-10">
           <CourseForm
+            key={template?.id ?? 'blank'}
+            template={template}
             onDone={(createdId) => {
               setCreating(false)
+              setTemplate(undefined)
               if (createdId) window.location.hash = courseHref(createdId).slice(1)
             }}
           />
@@ -109,5 +139,36 @@ export function CoursesPage() {
         </ul>
       )}
     </>
+  )
+}
+
+function TemplatePicker({ courses, onPicked, onCancel }: { courses: { id: string; code: string; name: string; academicYear: string }[]; onPicked: (c: CourseDetailData) => void; onCancel: () => void }) {
+  const sorted = [...courses].sort((a, b) => b.academicYear.localeCompare(a.academicYear) || a.code.localeCompare(b.code))
+  const [id, setId] = useState(sorted[0]?.id ?? '')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const go = async () => {
+    setBusy(true)
+    try {
+      onPicked(mapCourseDetail(await api<Record<string, unknown>>(`/courses/${id}`)))
+    } catch (e) {
+      setError(errorMessage(e))
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Panel title="Create a course based on an existing one">
+      <p className="mb-4 text-ink-soft">Syllabus, grading scheme, prerequisites, teachers and timetable are copied into a new form. Nothing is saved until you save it.</p>
+      <div className="max-w-xl">
+        <SelectField label="Course to copy" value={id} onChange={setId} options={sorted.map((c) => ({ value: c.id, label: `${c.code} ${c.name} (${c.academicYear})` }))} />
+      </div>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <Button disabled={!id || busy} onClick={() => void go()}>Continue</Button>
+        <Button variant="secondary" onClick={onCancel}>Cancel</Button>
+        <p role="alert" className="font-semibold">{error}</p>
+      </div>
+    </Panel>
   )
 }

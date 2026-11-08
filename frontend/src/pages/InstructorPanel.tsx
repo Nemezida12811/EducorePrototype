@@ -60,6 +60,7 @@ export function InstructorPanelPage() {
         </>
       ),
     },
+    ...(course.groupCount > 1 ? [{ header: 'Group', cell: (s: Row) => s.group ?? '-' }] : []),
     { header: 'Points', cell: (s) => <span className="whitespace-nowrap">{s.total} / {s.graded}</span> },
     {
       header: 'Progress',

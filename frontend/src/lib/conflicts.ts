@@ -1,4 +1,4 @@
-import type { ClassSession, Exam } from '../data/types'
+import type { ClassSession, Exam, Term } from '../data/types'
 
 const minutes = (t: string) => {
   const [h, m] = t.split(':').map(Number)
@@ -10,6 +10,9 @@ type Slot = Pick<ClassSession, 'day' | 'start' | 'end'>
 /** Same day and the time ranges intersect (back-to-back sessions do not clash). */
 export const sessionsOverlap = (a: Slot, b: Slot) =>
   a.day === b.day && minutes(a.start) < minutes(b.end) && minutes(b.start) < minutes(a.end)
+
+/** Winter and summer timetables never meet: sessions of different semesters cannot clash. Unknown semesters are compared. */
+export const sameTerm = (a: { semester?: Term }, b: { semester?: Term }) => !a.semester || !b.semester || a.semester === b.semester
 
 export const sameRoom = (a: string, b: string) => a.trim().toUpperCase() === b.trim().toUpperCase()
 
@@ -38,7 +41,7 @@ export function internalClashes(sessions: ClassSession[], mode: 'any' | 'resourc
     for (let j = i + 1; j < sessions.length; j += 1) {
       const a = sessions[i]
       const b = sessions[j]
-      if (!sessionsOverlap(a, b)) continue
+      if (!sessionsOverlap(a, b) || !sameTerm(a, b)) continue
       const room = sameRoom(a.room, b.room)
       const teacher = a.teacherId !== null && a.teacherId === b.teacherId
       if (mode === 'any') out.push({ a, b, why: 'Overlapping times' })

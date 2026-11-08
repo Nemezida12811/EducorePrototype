@@ -2,7 +2,7 @@
 from collections.abc import Iterator
 from contextvars import ContextVar
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from .config import get_settings
@@ -47,3 +47,20 @@ def begin_immediate(db: Session) -> None:
     Ends the current read transaction; the next statement opens a BEGIN IMMEDIATE one."""
     db.commit()
     _immediate.set(True)
+
+
+def upgrade_schema(eng=None) -> None:
+    """Additive schema upgrade for databases created by an older version: create_all only creates missing tables, so add missing columns here.
+    Only nullable columns and columns with a plain server_default can be added; anything bigger deserves a real migration tool (Alembic)."""
+    eng = eng or engine
+    insp = inspect(eng)
+    with eng.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            if not insp.has_table(table.name): continue
+            have = {c["name"] for c in insp.get_columns(table.name)}
+            for col in table.columns:
+                if col.name in have: continue
+                ddl = f'ALTER TABLE {table.name} ADD COLUMN {col.name} {col.type.compile(dialect=eng.dialect)}'
+                if col.server_default is not None: ddl += f" DEFAULT {col.server_default.arg!r}" if isinstance(col.server_default.arg, str) else ""
+                elif not col.nullable: continue  # cannot add a NOT NULL column without a default
+                conn.exec_driver_sql(ddl)

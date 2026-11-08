@@ -9,7 +9,7 @@ from ..db import get_db
 from ..errors import conflict, not_found
 from ..models import Course, File, Institution, Role, User
 from ..schemas import CamelModel
-from ..security import Principal, invalidate_institution_cache, require_roles
+from ..security import Principal, authenticate, invalidate_institution_cache, require_roles
 from ..services import audit
 
 router = APIRouter(tags=["institutions"])
@@ -42,6 +42,13 @@ def _load(db: Session, inst_id: str | None = None) -> Institution:
     i = db.scalars(select(Institution).limit(1)).first()
     if not i or (inst_id and i.id != inst_id): raise not_found("Institution")
     return i
+
+
+@router.get("/institution")
+def current_institution(_: Principal = Depends(authenticate), db: Session = Depends(get_db)):
+    """Name of the (single) institution; readable by every signed-in user, unlike /institutions."""
+    i = _load(db)
+    return {"id": i.id, "name": i.name, "domain": i.domain}
 
 
 # The deployment serves a single institution; these endpoints operate on that one record.

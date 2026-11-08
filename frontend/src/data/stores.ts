@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import type {
   CalendarEvent, ClassSession, Course, DirectoryUser, EnrollmentItem, Exam, Notice, OrgUnit, PlatformSettings, RosterRow, StudentGrade, StudyPlan,
-  StudyProgram, Teacher,
+  Room, StudyProgram, Teacher,
 } from './types'
 
 /** Minimal external store: module-level state that React components subscribe to. Filled from the API by data/load.ts. */
@@ -36,6 +36,7 @@ export const teachersStore = createStore<Teacher[]>([])
 export const directoryStore = createStore<DirectoryUser[]>([])
 export const orgUnitsStore = createStore<OrgUnit[]>([])
 export const programsStore = createStore<StudyProgram[]>([])
+export const roomsStore = createStore<Room[]>([])
 export const examsStore = createStore<Exam[]>([])
 export const noticesStore = createStore<Notice[]>([])
 export const eventsStore = createStore<CalendarEvent[]>([])
@@ -48,7 +49,7 @@ export const institutionStore = createStore<{ id: string; name: string } | null>
 export const rostersStore = createStore<Record<string, RosterRow[]>>({})
 
 const ALL = [
-  coursesStore, sessionsStore, allSessionsStore, teachersStore, directoryStore, orgUnitsStore, programsStore, examsStore, noticesStore, eventsStore,
+  coursesStore, sessionsStore, allSessionsStore, teachersStore, directoryStore, orgUnitsStore, programsStore, roomsStore, examsStore, noticesStore, eventsStore,
   enrollmentsStore, gradesStore, planStore, platformStore, institutionStore, rostersStore,
 ]
 /** Forget everything (sign-out): the next user must never see the previous user's data. */
@@ -61,6 +62,7 @@ export const useTeachers = teachersStore.use
 export const useDirectory = directoryStore.use
 export const useOrgUnits = orgUnitsStore.use
 export const usePrograms = programsStore.use
+export const useRooms = roomsStore.use
 export const useExams = examsStore.use
 export const useNotices = noticesStore.use
 export const useEvents = eventsStore.use

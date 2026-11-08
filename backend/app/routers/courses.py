@@ -13,7 +13,7 @@ from ..models import (Completion, Course, CourseDocument, CoursePrerequisite, Co
                       EnrollmentStatus, ExamTerm, File, Grade, Role, Semester, User)
 from ..schemas import CamelModel
 from ..security import Principal, authenticate, can_manage_course, require_roles, role_allowed
-from ..services import Page, audit, emit, is_passed, read_upload, save_file
+from ..services import Page, audit, emit, is_passed, read_upload, save_file, rebalance_groups
 
 router = APIRouter(tags=["courses"])
 
@@ -21,6 +21,13 @@ router = APIRouter(tags=["courses"])
 class Component(CamelModel):
     name: str = Field(min_length=1, max_length=60)
     max_points: int = Field(ge=1, le=100)
+    # Minimum points on this component that a student needs to pass the course (0 = no minimum).
+    min_points: int = Field(0, ge=0, le=100)
+
+    @model_validator(mode="after")
+    def _min_within_max(self):
+        if self.min_points > self.max_points: raise ValueError(f'"{self.name}": the minimum cannot exceed its maximum points')
+        return self
 
 
 def _check_scheme(v):
@@ -43,10 +50,12 @@ class CourseIn(CamelModel):
     credits: int = Field(5, ge=0, le=30)
     capacity: int = Field(30, ge=1, le=5000)
     completion: Completion = Completion.exam
-    grading_scheme: list[Component] = Field(min_length=1, max_length=12)
+    grading_scheme: list[Component] = Field(min_length=1, max_length=30)
     syllabus: list[str] = Field(default_factory=list, max_length=60)
     teacher_ids: list[str] = Field(default_factory=list, max_length=20)
     prerequisite_ids: list[str] = Field(default_factory=list, max_length=20)
+    status: Literal["draft", "published"] = "published"
+    group_count: int = Field(1, ge=1, le=10)
 
     _scheme = field_validator("grading_scheme")(_check_scheme)
 
@@ -68,10 +77,12 @@ class CourseUpdate(CamelModel):
     credits: int | None = Field(None, ge=0, le=30)
     capacity: int | None = Field(None, ge=1, le=5000)
     completion: Completion | None = None
-    grading_scheme: list[Component] | None = Field(None, min_length=1, max_length=12)
+    grading_scheme: list[Component] | None = Field(None, min_length=1, max_length=30)
     syllabus: list[str] | None = Field(None, max_length=60)
     teacher_ids: list[str] | None = Field(None, max_length=20)
     prerequisite_ids: list[str] | None = Field(None, max_length=20)
+    status: Literal["draft", "published"] | None = None
+    group_count: int | None = Field(None, ge=1, le=10)
 
     _scheme = field_validator("grading_scheme")(_check_scheme)
 
@@ -105,6 +116,9 @@ def list_courses(page: Page = Depends(), q: str | None = Query(None, max_length=
     if semester: conds.append(Course.semester == semester)
     if academic_year: conds.append(Course.academic_year == academic_year)
     if q: conds.append(or_(func.lower(Course.name).like(f"%{q.lower()}%"), func.lower(Course.code).like(f"%{q.lower()}%")))
+    # Drafts are invisible to students; teachers see the drafts of their own courses; admins see all.
+    if p.role == Role.student: conds.append(Course.status == "published")
+    elif p.role == Role.teacher: conds.append(or_(Course.status == "published", Course.id.in_(select(CourseTeacher.course_id).where(CourseTeacher.user_id == p.user_id))))
     if mine == "true" and p.role == Role.student:
         conds.append(Course.id.in_(select(Enrollment.course_id).where(Enrollment.student_id == p.user_id)))
     elif mine == "true" and p.role == Role.teacher:
@@ -127,6 +141,7 @@ def list_courses(page: Page = Depends(), q: str | None = Query(None, max_length=
 @router.get("/courses/{course_id}")
 def get_course(course_id: str, p: Principal = Depends(authenticate), db: Session = Depends(get_db)):
     c = load_course(db, course_id)
+    if c.status == "draft" and not can_manage_course(db, p, course_id): raise not_found("Course")
     teachers = _teachers(db, [course_id])
     prereqs = db.execute(select(Course.id, Course.code, Course.name).join(CoursePrerequisite, CoursePrerequisite.prerequisite_id == Course.id)
                          .where(CoursePrerequisite.course_id == course_id)).all()
@@ -145,7 +160,7 @@ def get_course(course_id: str, p: Principal = Depends(authenticate), db: Session
         enr = db.scalars(select(Enrollment).where(Enrollment.course_id == course_id, Enrollment.student_id == p.user_id)).first()
         g = db.scalars(select(Grade).where(Grade.course_id == course_id, Grade.student_id == p.user_id)).first()
         passed = {r.course_id for r in db.scalars(select(Grade).where(Grade.student_id == p.user_id, Grade.course_id.in_([r[0] for r in prereqs]))) if is_passed(r.mark)} if prereqs else set()
-        out["myEnrollment"] = {"id": enr.id, "status": enr.status.value} if enr else None
+        out["myEnrollment"] = {"id": enr.id, "status": enr.status.value, "group": enr.group_no} if enr else None
         out["myGrade"] = {"components": g.components, "finalScore": g.final_score, "mark": g.mark} if g else None
         out["missingPrerequisites"] = [{"id": r[0], "code": r[1], "name": r[2]} for r in prereqs if r[0] not in passed]
     return out
@@ -189,7 +204,14 @@ def update_course(course_id: str, body: CourseUpdate, request: Request, p: Princ
     if "capacity" in data and data["capacity"] < db.scalar(select(func.count()).select_from(Enrollment).where(
             Enrollment.course_id == course_id, Enrollment.status == EnrollmentStatus.enrolled)):
         raise conflict("capacity_below_enrolled", "Capacity cannot be lower than the number of enrolled students")
+    if data.get("status") == "draft" and c.status == "published" and db.scalar(select(func.count()).select_from(Enrollment).where(Enrollment.course_id == course_id)):
+        raise conflict("has_enrollments", "A course with enrolled or waitlisted students cannot go back to draft")
+    new_groups, old_groups = data.get("group_count"), c.group_count
+    if new_groups is not None and new_groups < c.group_count:
+        used = db.scalar(select(func.max(CourseSession.group_no)).where(CourseSession.course_id == course_id))
+        if used and used > new_groups: raise conflict("groups_in_use", f"Timetable entries still belong to group {used}. Move or delete them first.")
     for k, v in data.items(): setattr(c, k, v)
+    if new_groups is not None and new_groups != old_groups: rebalance_groups(db, c)
     if teacher_ids is not None:
         for r in db.scalars(select(CourseTeacher).where(CourseTeacher.course_id == course_id)): db.delete(r)
         db.flush()

@@ -4,7 +4,7 @@ import type { ClassSession } from '../../data/types'
 import { currentSession, formatCountdown, nextSession, spokenRemaining, useNow } from '../../lib/clock'
 import { CourseLink } from './CourseLink'
 
-const describe = (s: ClassSession) => `${s.type}, room ${s.room}`
+const describe = (s: ClassSession) => `${s.type}${s.group ? `, group ${s.group}` : ''}, room ${s.room}`
 
 /** Live countdown to the next class. */
 export function NextClassCard({ sessions }: { sessions: ClassSession[] }) {

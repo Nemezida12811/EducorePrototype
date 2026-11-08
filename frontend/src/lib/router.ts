@@ -12,12 +12,13 @@ export type RouteId =
   | 'instructor'
   | 'users'
   | 'organization'
+  | 'rooms'
   | 'platform'
   | 'profile'
 
 const ROUTES: readonly RouteId[] = [
   'dashboard', 'courses', 'grades', 'plan', 'schedule', 'exams', 'calendar', 'notices',
-  'instructor', 'users', 'organization', 'platform', 'profile',
+  'instructor', 'users', 'organization', 'rooms', 'platform', 'profile',
 ]
 
 export interface Route {

@@ -2,7 +2,7 @@
 import type { AuthUser } from '../lib/api'
 import type {
   CalendarEvent, ClassSession, CompletionType, Course, CourseDetailData, CourseDocument, CoursePrerequisite, DirectoryUser, Day, EnrollmentItem,
-  Exam, ExamFormat, Mark, Notice, OrgUnit, PlatformSettings, Role, RosterRow, SessionType, StudentGrade, StudyPlan, StudyProgram, Teacher,
+  Exam, ExamFormat, Mark, Notice, Room, OrgUnit, PlatformSettings, Role, RosterRow, SessionType, StudentGrade, StudyPlan, StudyProgram, Teacher, Term,
 } from './types'
 
 // The payloads are plain JSON; the mappers are the one place that knows their shape.
@@ -49,10 +49,16 @@ export function mapCourse(c: Dto): Course {
     gradingScheme: ((c.gradingScheme ?? []) as Dto[]).map((x) => ({ name: x.name, max: x.maxPoints, min: x.minPoints ?? 0 })),
     guarantorId: c.guarantorId ?? null,
     topics: c.syllabus ?? [],
+    status: c.status === 'draft' ? 'draft' : 'published',
+    groupCount: c.groupCount ?? 1,
   }
 }
 
-export function mapSession(s: Dto, courseId?: string): ClassSession {
+export const mapRoom = (r: Dto): Room => ({
+  id: r.id, code: r.code, building: r.building ?? '', kind: r.kind, capacity: r.capacity, active: !!r.active, departmentIds: r.departmentIds ?? [], sessionCount: r.sessionCount ?? 0,
+})
+
+export function mapSession(s: Dto, courseId?: string, semester?: Term): ClassSession {
   return {
     id: s.id,
     courseId: courseId ?? s.courseId,
@@ -62,6 +68,8 @@ export function mapSession(s: Dto, courseId?: string): ClassSession {
     type: SESSION_TYPE[s.kind] ?? 'Lecture',
     room: s.room,
     teacherId: s.teacherId ?? null,
+    group: s.groupNo ?? null,
+    semester: s.semester ? (s.semester === 'summer' ? 'Summer' : 'Winter') : semester,
   }
 }
 
@@ -90,6 +98,8 @@ export function mapGrade(g: Dto): StudentGrade {
 export function mapRosterRow(r: Dto): RosterRow {
   return {
     id: r.studentId,
+    enrollmentId: r.enrollmentId,
+    group: r.group ?? null,
     name: fullName(r.firstName, r.lastName),
     email: r.email,
     components: r.components ?? null,
@@ -113,7 +123,7 @@ export function mapNotice(a: Dto): Notice {
 
 export const mapEvent = (e: Dto): CalendarEvent => ({ id: e.id, title: e.title, kind: e.kind, start: e.startsAt, end: e.endsAt ?? undefined })
 
-export const mapEnrollment = (e: Dto): EnrollmentItem => ({ id: e.id, courseId: e.courseId, status: e.status })
+export const mapEnrollment = (e: Dto): EnrollmentItem => ({ id: e.id, courseId: e.courseId, status: e.status, group: e.groupNo ?? null })
 
 export const mapOrgUnit = (d: Dto): OrgUnit => ({ id: d.id, name: d.name, code: d.code })
 
@@ -162,7 +172,7 @@ export function mapCourseDetail(c: Dto): CourseDetailData {
   return {
     ...base,
     prerequisites: ((c.prerequisites ?? []) as Dto[]).map(mapPrereq),
-    sessions: ((c.sessions ?? []) as Dto[]).map((s) => mapSession(s, c.id)),
+    sessions: ((c.sessions ?? []) as Dto[]).map((s) => mapSession(s, c.id, base.semester)),
     documents: ((c.documents ?? []) as Dto[]).map(doc),
     exams: ((c.examTerms ?? []) as Dto[]).map((x) => mapExam(x, c.id)),
     canManage: !!c.canManage,

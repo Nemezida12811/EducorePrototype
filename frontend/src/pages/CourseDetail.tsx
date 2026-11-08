@@ -12,7 +12,7 @@ import { Panel } from '../components/ui/Panel'
 import { ProgressBar } from '../components/ui/ProgressBar'
 import { StatCard, StatGrid } from '../components/ui/StatCard'
 import {
-  deleteExam, deleteFile, enroll, errorMessage, saveGrade, setCourseArchived, uploadCourseDocument, withdraw,
+  deleteExam, deleteFile, enroll, errorMessage, saveGrade, setCourseArchived, setCourseStatus, setStudentGroup, uploadCourseDocument, withdraw,
   reloadRoster,
 } from '../data/actions'
 import { mapCourseDetail } from '../data/mappers'
@@ -100,7 +100,7 @@ function CourseDetail({ detail, reload }: { detail: CourseDetailData; reload: ()
   const unmet = detail.missingPrerequisites
   // Schedule check: the sessions the student already attends in other courses.
   const others = mySessions.filter((x) => x.courseId !== course.id && enrolledIds.has(x.courseId) && !findCourse(x.courseId)?.archived)
-  const clash = sessions.flatMap((mine) => others.filter((other) => sessionsOverlap(mine, other)).map((other) => ({ mine, other }))).at(0)
+  const clash = sessions.filter((x) => x.group === null).flatMap((mine) => others.filter((other) => sessionsOverlap(mine, other)).map((other) => ({ mine, other }))).at(0)
   const blocked = role === 'student' && !enrolled && !waitlisted && (unmet.length > 0 || clash !== undefined)
 
   const run = async (action: () => Promise<string>) => {
@@ -159,8 +159,8 @@ function CourseDetail({ detail, reload }: { detail: CourseDetailData; reload: ()
         <div className="max-w-3xl">
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <span className="font-semibold text-rose">{course.code}</span>
-            {course.archived ? <Badge tone="onDark">Archived</Badge> : <Badge tone="soft">Active</Badge>}
-            {role === 'student' && enrolled && <Badge tone="soft">Enrolled</Badge>}
+            {course.archived ? <Badge tone="onDark">Archived</Badge> : course.status === 'draft' ? <Badge tone="onDark">Draft, hidden from students</Badge> : <Badge tone="soft">Active</Badge>}
+            {role === 'student' && enrolled && <Badge tone="soft">Enrolled{detail.myEnrollment?.group && course.groupCount > 1 ? `, group ${detail.myEnrollment.group}` : ''}</Badge>}
             {role === 'student' && waitlisted && <Badge tone="soft">On waitlist</Badge>}
             {teaches && <Badge tone="soft">You teach this</Badge>}
           </div>
@@ -183,6 +183,16 @@ function CourseDetail({ detail, reload }: { detail: CourseDetailData; reload: ()
                 <Pencil aria-hidden="true" className="mr-2 size-4" />
                 Edit details
               </Button>
+              {!course.archived && course.status === 'draft' && (
+                <Button disabled={busy} onClick={() => void run(async () => { await setCourseStatus(course.id, 'published'); return 'Course published. Students can see it now.' })}>
+                  Publish
+                </Button>
+              )}
+              {!course.archived && course.status === 'published' && course.enrolled === 0 && course.waitlisted === 0 && (
+                <Button variant="secondary" disabled={busy} onClick={() => void run(async () => { await setCourseStatus(course.id, 'draft'); return 'Course moved back to draft.' })}>
+                  Move to draft
+                </Button>
+              )}
               {role !== 'instructor' && (
                 <Button variant="secondary" disabled={busy} onClick={() => void setArchived(!course.archived)}>
                   {course.archived ? <ArchiveRestore aria-hidden="true" className="mr-2 size-4" /> : <Archive aria-hidden="true" className="mr-2 size-4" />}
@@ -257,10 +267,12 @@ function CourseDetail({ detail, reload }: { detail: CourseDetailData; reload: ()
               <dd className="font-semibold">{teacherName(course.guarantorId)}</dd>
               <dt className="text-ink-soft">Teachers</dt>
               <dd>{teacherNames(course).join(', ')}</dd>
+              <dt className="text-ink-soft">Groups</dt>
+              <dd>{course.groupCount === 1 ? 'No split' : `${course.groupCount} practical groups`}</dd>
               <dt className="text-ink-soft">Student limit</dt>
               <dd>{taken} of {course.studentLimit}{course.waitlisted > 0 ? `, ${course.waitlisted} waiting` : ''}</dd>
               <dt className="text-ink-soft">Status</dt>
-              <dd>{course.archived ? 'Archived, history is kept' : 'Active'}</dd>
+              <dd>{course.archived ? 'Archived, history is kept' : course.status === 'draft' ? 'Draft, not visible to students' : 'Published'}</dd>
             </dl>
           </Panel>
 
@@ -480,6 +492,16 @@ function TeacherGrades({ course }: { course: Course }) {
     }
   }
 
+  const moveStudent = async (s: Row, group: number) => {
+    try {
+      await setStudentGroup(s.enrollmentId, group)
+      await reloadRoster(course.id)
+      setMessage(`${s.name} moved to group ${group}.`)
+    } catch (e) {
+      setMessage(errorMessage(e))
+    }
+  }
+
   const columns: Column<Row>[] = [
     {
       header: 'Student',
@@ -491,6 +513,25 @@ function TeacherGrades({ course }: { course: Course }) {
         </>
       ),
     },
+    ...(course.groupCount > 1
+      ? [{
+          header: 'Group',
+          cell: (s: Row) => (
+            <select
+              aria-label={`Group of ${s.name}`}
+              value={s.group ?? ''}
+              disabled={!canEdit}
+              onChange={(e) => void moveStudent(s, Number(e.target.value))}
+              className="min-h-10 rounded-md border-2 border-wine bg-fog px-2 text-wine"
+            >
+              {s.group === null && <option value="">None</option>}
+              {Array.from({ length: course.groupCount }, (_, i) => (
+                <option key={i + 1} value={i + 1}>{i + 1}</option>
+              ))}
+            </select>
+          ),
+        } satisfies Column<Row>]
+      : []),
     ...scheme.map<Column<Row>>((c) => ({
       header: c.min > 0 ? `${c.name} (min ${c.min})` : c.name,
       cell: (s) =>
@@ -592,7 +633,7 @@ function TimetablePanel({ course, sessions }: { course: Course; sessions: ClassS
           {sorted.map((s) => (
             <li key={s.id} className="py-2.5 first:pt-0 last:pb-0">
               <p className="font-semibold">{s.day} {s.start}-{s.end}</p>
-              <p className="text-sm text-ink-soft">{s.type}, room {s.room}, {teacherName(s.teacherId)}</p>
+              <p className="text-sm text-ink-soft">{s.type}, {s.group ? `group ${s.group}` : 'all groups'}, room {s.room}, {teacherName(s.teacherId)}</p>
             </li>
           ))}
         </ul>

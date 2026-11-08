@@ -63,17 +63,20 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 # ---------- grades ----------
 def mark_for(score: int) -> str:
-    return "A" if score >= 90 else "B" if score >= 80 else "C" if score >= 70 else "D" if score >= 60 else "E" if score >= 50 else "FX"
+    """Slovak ECTS-style scale, identical to the one the frontend shows: A 93-100, B 85-92, C 77-84, D 69-76, E 61-68, FX below 61."""
+    return "A" if score >= 93 else "B" if score >= 85 else "C" if score >= 77 else "D" if score >= 69 else "E" if score >= 61 else "FX"
 
 
 def is_passed(mark: str | None) -> bool: return mark is not None and mark != "FX"
 
 
 def compute_final(scheme: list[dict], components: dict) -> tuple[int | None, str | None]:
-    """Final score exists only when every scheme component has points."""
+    """Final score exists only when every scheme component has points. A component below its minimum (minPoints) gives FX."""
     if not all(isinstance(components.get(c["name"]), (int, float)) for c in scheme): return None, None
     total = round(sum(components[c["name"]] for c in scheme))
     score = max(0, min(100, total))
+    # A component below its required minimum fails the course whatever the total is.
+    if any(components[c["name"]] < c.get("minPoints", 0) for c in scheme): return score, "FX"
     return score, mark_for(score)
 
 
@@ -153,3 +156,32 @@ class Page:
     def offset(self) -> int: return (self.page - 1) * self.page_size
     def wrap(self, items: list, total: int) -> dict:
         return {"items": items, "page": self.page, "pageSize": self.page_size, "total": total}
+
+
+def group_sizes(db, course_id: str, group_count: int) -> dict[int, int]:
+    """Enrolled students per group number (1..group_count)."""
+    from sqlalchemy import func, select
+    from .models import Enrollment, EnrollmentStatus
+    sizes = {g: 0 for g in range(1, group_count + 1)}
+    for g, n in db.execute(select(Enrollment.group_no, func.count()).where(Enrollment.course_id == course_id, Enrollment.status == EnrollmentStatus.enrolled)
+                           .group_by(Enrollment.group_no)):
+        if g in sizes: sizes[g] = n
+    return sizes
+
+
+def assign_group(db, course) -> int:
+    """The group with the fewest enrolled students (the lowest number on a tie)."""
+    sizes = group_sizes(db, course.id, course.group_count)
+    return min(sizes, key=lambda g: (sizes[g], g))
+
+
+def rebalance_groups(db, course) -> None:
+    """After the number of groups changed: students without a valid group are spread over the emptiest groups."""
+    from sqlalchemy import select
+    from .models import Enrollment, EnrollmentStatus
+    for e in db.scalars(select(Enrollment).where(Enrollment.course_id == course.id, Enrollment.status == EnrollmentStatus.enrolled).order_by(Enrollment.created_at)):
+        if e.group_no is None or e.group_no > course.group_count or e.group_no < 1:
+            e.group_no = None
+            db.flush()
+            e.group_no = assign_group(db, course)
+            db.flush()

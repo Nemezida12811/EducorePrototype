@@ -64,6 +64,10 @@ export interface Course {
   gradingScheme: GradingComponent[]
   guarantorId: string | null
   topics: string[]
+  /** Drafts are visible only to the course's teachers and admins. */
+  status: 'draft' | 'published'
+  /** Number of practical groups (1 = no split). */
+  groupCount: number
 }
 
 export interface CoursePrerequisite {
@@ -94,7 +98,7 @@ export interface CourseDetailData extends Course {
   exams: Exam[]
   canManage: boolean
   /** Students only. */
-  myEnrollment: { id: string; status: 'enrolled' | 'waitlisted' } | null
+  myEnrollment: { id: string; status: 'enrolled' | 'waitlisted'; group: number | null } | null
   myGrade: MyGrade | null
   missingPrerequisites: CoursePrerequisite[]
 }
@@ -111,6 +115,10 @@ export interface ClassSession {
   room: string
   /** The teacher who runs this session. */
   teacherId: string | null
+  /** null = every group attends; otherwise only this group (1..groupCount). */
+  group: number | null
+  /** Only sessions of the same semester can clash. Missing = unknown. */
+  semester?: Term
 }
 
 export type ExamFormat = 'Written' | 'Oral' | 'Online' | 'Practical'
@@ -186,6 +194,9 @@ export interface RosterStudent {
 
 /** A student's row in a course roster, with the grade (if any) from the grades API. */
 export interface RosterRow extends RosterStudent {
+  enrollmentId: string
+  /** Practical group (null before the student got one). */
+  group: number | null
   components: Record<string, number> | null
   finalScore: number | null
   mark: Mark | null
@@ -195,6 +206,7 @@ export interface EnrollmentItem {
   id: string
   courseId: string
   status: 'enrolled' | 'waitlisted'
+  group: number | null
 }
 
 export interface DirectoryUser {
@@ -217,4 +229,19 @@ export interface PlatformSettings {
   usersUsed: number
   storageLimitMb: number
   storageUsedMb: number
+}
+
+export type RoomKind = 'lecture_hall' | 'classroom' | 'lab' | 'online'
+
+/** A teaching room. Only courses of the departments it belongs to may schedule it. */
+export interface Room {
+  id: string
+  code: string
+  building: string
+  kind: RoomKind
+  capacity: number
+  active: boolean
+  departmentIds: string[]
+  /** Timetable entries that use the room. */
+  sessionCount: number
 }

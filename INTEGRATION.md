@@ -80,3 +80,11 @@ Point the domain's DNS at the server first. Back up the `data` volume (SQLite fi
 
 Verified here: backend test suite (25 tests); concurrency under 3 worker processes; the `Caddyfile` validates with Caddy 2.8.4 and, in a live run in front of the API, serves the SPA with deep-link fallback, long-cache for `/assets/*` and no-cache for `index.html`, forwards `/api` and `/health`, keeps unknown `/api` routes as JSON 404, rejects bodies over 12 MB (413) and passes the real client IP to the audit log; the frontend files type-check under strict TypeScript against React 19.
 Not verified: the Docker images (no Docker in my environment), certificate issuance, the CI workflow on GitHub, and everything that touches your actual frontend code. I have not seen your `src/`, so the mock-data replacement (step 5) is the part that needs your repository. The CSP in the Caddyfile assumes the app loads nothing from other hosts; if something is blocked, the browser console names the directive to relax.
+
+
+## Status: the frontend now runs on the API
+
+`frontend/src/data/demo.ts` is gone. After sign-in `AppProvider` loads the user's data into the stores in `src/data/stores.ts` (`data/load.ts`),
+`data/mappers.ts` turns API payloads into the UI types, and every change goes through `data/actions.ts`, which calls the API and refreshes the affected stores.
+Not carried over because the API has no counterpart: practical groups with their own capacity and group notices, per-component grade dates,
+the "grading tasks with submissions" queue (replaced by "students without a final grade"), semesters/holidays (replaced by the academic calendar events).

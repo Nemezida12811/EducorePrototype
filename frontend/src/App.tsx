@@ -13,6 +13,7 @@ import { NoticesPage } from './pages/Notices'
 import { OrganizationPage } from './pages/Organization'
 import { PlatformPage } from './pages/Platform'
 import { ProfilePage } from './pages/Profile'
+import { RoomsPage } from './pages/Rooms'
 import { SchedulePage } from './pages/Schedule'
 import { StudyPlanPage } from './pages/StudyPlan'
 import { UsersPage } from './pages/Users'
@@ -32,6 +33,7 @@ const PAGES: Record<RouteId, () => React.JSX.Element> = {
   instructor: InstructorPanelPage,
   users: UsersPage,
   organization: OrganizationPage,
+  rooms: RoomsPage,
   platform: PlatformPage,
   profile: ProfilePage,
 }

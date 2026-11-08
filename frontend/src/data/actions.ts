@@ -3,10 +3,10 @@ import { api, ApiError, upload } from '../lib/api'
 import { COMPLETION_TO_API, dayToNumber, sessionTypeToApi, apiRole, type Dto } from './mappers'
 import {
   refreshAllSessions, refreshCourses, refreshDirectory, refreshEnrollments, refreshEvents, refreshExams, refreshNotices, refreshOrg,
-  refreshPlan, refreshPlatform, refreshSessions, loadRoster,
+  refreshPlan, refreshRooms, refreshPlatform, refreshSessions, loadRoster,
 } from './load'
 import { noticesStore } from './stores'
-import type { ClassSession, CompletionType, ExamFormat, GradingComponent, Role, Term } from './types'
+import type { ClassSession, CompletionType, ExamFormat, GradingComponent, Role, RoomKind, Term } from './types'
 
 export const errorMessage = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : 'Something went wrong. Try again.')
 
@@ -96,6 +96,8 @@ export interface CourseInput {
   syllabus: string[]
   teacherIds: string[]
   prerequisiteIds: string[]
+  status: 'draft' | 'published'
+  groupCount: number
   /** Send it when creating, or when editing a course whose scheme changed (the API locks it once grades exist). */
   gradingScheme?: GradingComponent[]
 }
@@ -111,6 +113,7 @@ const sessionBody = (d: SessionDraft, teacherId: string | null) => ({
   endTime: d.end,
   room: d.room.trim(),
   teacherId,
+  groupNo: d.group,
 })
 
 export interface SaveCourseResult {
@@ -158,6 +161,16 @@ export async function saveCourse(
   }
   await Promise.all([refreshCourses(), refreshSessions(), refreshAllSessions().catch(() => undefined), refreshExams()])
   return { id, problems }
+}
+
+/** Teachers and admins move an enrolled student to another practical group. */
+export async function setStudentGroup(enrollmentId: string, group: number) {
+  await api(`/enrollments/${enrollmentId}/group`, { method: 'PUT', json: { group } })
+}
+
+export async function setCourseStatus(courseId: string, status: 'draft' | 'published') {
+  await api(`/courses/${courseId}`, { method: 'PUT', json: { status } })
+  await refreshCourses()
 }
 
 export async function setCourseArchived(courseId: string, archived: boolean) {
@@ -238,3 +251,23 @@ export async function savePlatformLimits(institutionId: string, l: { maxUsers: n
   await refreshPlatform()
 }
 
+
+// ---------- rooms ----------
+export interface RoomInput {
+  code: string
+  building: string
+  kind: RoomKind
+  capacity: number
+  departmentIds: string[]
+  active: boolean
+}
+
+export async function saveRoom(id: string | null, r: RoomInput) {
+  await api(id ? `/rooms/${id}` : '/rooms', { method: id ? 'PUT' : 'POST', json: r })
+  await Promise.all([refreshRooms(), refreshSessions(), refreshAllSessions().catch(() => undefined)])
+}
+
+export async function deleteRoom(id: string) {
+  await api(`/rooms/${id}`, { method: 'DELETE' })
+  await refreshRooms()
+}

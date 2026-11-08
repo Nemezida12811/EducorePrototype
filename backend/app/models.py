@@ -22,6 +22,7 @@ class Completion(str, enum.Enum): exam = "exam"; credit = "credit"; graded_credi
 class Semester(str, enum.Enum): winter = "winter"; summer = "summer"
 class EnrollmentStatus(str, enum.Enum): enrolled = "enrolled"; waitlisted = "waitlisted"
 class DocKind(str, enum.Enum): syllabus = "syllabus"; material = "material"
+class RoomKind(str, enum.Enum): lecture_hall = "lecture_hall"; classroom = "classroom"; lab = "lab"; online = "online"
 
 
 def E(e): return Enum(e, native_enum=False, length=20)
@@ -132,6 +133,28 @@ class Course(Base, Serializable):
     syllabus: Mapped[list] = mapped_column(JSON, default=list)
     archived: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+    # draft = visible only to its teachers and admins; published = students can see it and enroll (enrollment is always open)
+    status: Mapped[str] = mapped_column(String(10), default="published", server_default="published")
+    # Practical sessions can be split into groups: each enrolled student belongs to one group (Enrollment.group_no).
+    group_count: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+
+
+class Room(Base, Serializable):
+    """A teaching room (lecture hall, classroom or lab). It belongs to one or more departments; only their courses may schedule it."""
+    __tablename__ = "rooms"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    code: Mapped[str] = mapped_column(String(30), unique=True)
+    building: Mapped[str] = mapped_column(String(60), default="")
+    kind: Mapped[RoomKind] = mapped_column(E(RoomKind))
+    capacity: Mapped[int] = mapped_column(Integer)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+
+class RoomDepartment(Base):
+    __tablename__ = "room_departments"
+    room_id: Mapped[str] = mapped_column(ForeignKey("rooms.id", ondelete="CASCADE"), primary_key=True)
+    department_id: Mapped[str] = mapped_column(ForeignKey("departments.id", ondelete="CASCADE"), primary_key=True)
 
 
 class CourseTeacher(Base):
@@ -156,6 +179,7 @@ class CourseSession(Base, Serializable):
     end_time: Mapped[str] = mapped_column(String(5))
     room: Mapped[str] = mapped_column(String(50))
     teacher_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    group_no: Mapped[int | None] = mapped_column(Integer)  # None = every group attends; otherwise only that group (1..Course.group_count)
 
 
 class StudyPlanItem(Base):
@@ -176,6 +200,7 @@ class Enrollment(Base, Serializable):
     student_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     status: Mapped[EnrollmentStatus] = mapped_column(E(EnrollmentStatus), default=EnrollmentStatus.enrolled)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+    group_no: Mapped[int | None] = mapped_column(Integer)  # the practical group of an enrolled student (set automatically, teachers can move students)
 
 
 class Grade(Base, Serializable):
@@ -214,6 +239,15 @@ class ExamTerm(Base, Serializable):
     registration_open: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+class ExamRegistration(Base, Serializable):
+    __tablename__ = "exam_registrations"
+    __table_args__ = (UniqueConstraint("exam_id", "student_id"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    exam_id: Mapped[str] = mapped_column(ForeignKey("exam_terms.id", ondelete="CASCADE"), index=True)
+    student_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+
 class File(Base, Serializable):
     __tablename__ = "files"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
@@ -241,6 +275,14 @@ class Announcement(Base, Serializable):
     title: Mapped[str] = mapped_column(String(200))
     body: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+
+class AnnouncementRead(Base):
+    """Per-user read state of an announcement (absence of a row = unread)."""
+    __tablename__ = "announcement_reads"
+    announcement_id: Mapped[str] = mapped_column(ForeignKey("announcements.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    read_at: Mapped[datetime] = mapped_column(DateTime, default=now)
 
 
 class Notification(Base, Serializable):

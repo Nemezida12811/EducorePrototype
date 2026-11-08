@@ -343,7 +343,7 @@ function TodayPanel() {
                   <CourseLink courseId={s.courseId} />
                 </p>
                 <p className="text-sm text-ink-soft">
-                  {s.type}, room {s.room}
+                  {s.type}{s.group ? `, group ${s.group}` : ''}, room {s.room}
                 </p>
               </div>
             </li>

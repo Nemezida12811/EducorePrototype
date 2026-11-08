@@ -3,11 +3,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..db import begin_immediate, get_db
-from ..errors import conflict, forbidden, not_found
+from ..errors import bad_request, conflict, forbidden, not_found
 from ..models import Course, CoursePrerequisite, Enrollment, EnrollmentStatus, Grade, Role, User
 from ..schemas import CamelModel
 from ..security import Principal, authenticate, can_manage_course, require_roles, role_allowed
-from ..services import audit, emit, is_passed, notify_users
+from ..services import assign_group, audit, emit, is_passed, notify_users
 
 router = APIRouter(tags=["enrollments"])
 
@@ -22,6 +22,7 @@ def enroll(body: EnrollIn, request: Request, p: Principal = Depends(require_role
     c = db.get(Course, body.course_id)
     if not c: raise not_found("Course")
     if c.archived: raise conflict("course_archived", "Archived courses are closed for enrollment")
+    if c.status != "published": raise not_found("Course")  # a draft does not exist for students
     if db.scalar(select(Enrollment.id).where(Enrollment.course_id == c.id, Enrollment.student_id == p.user_id)):
         raise conflict("already_enrolled", "You are already enrolled or on the waitlist")
     prereqs = [r for r in db.scalars(select(CoursePrerequisite.prerequisite_id).where(CoursePrerequisite.course_id == c.id))]
@@ -32,6 +33,7 @@ def enroll(body: EnrollIn, request: Request, p: Principal = Depends(require_role
     n = db.scalar(select(func.count()).select_from(Enrollment).where(Enrollment.course_id == c.id, Enrollment.status == EnrollmentStatus.enrolled))
     e = Enrollment(course_id=c.id, student_id=p.user_id, status=EnrollmentStatus.enrolled if n < c.capacity else EnrollmentStatus.waitlisted)
     db.add(e); db.flush()
+    if e.status == EnrollmentStatus.enrolled: e.group_no = assign_group(db, c)
     audit(db, request, "enrollment.create", "enrollment", e.id, {"courseId": c.id, "status": e.status.value}); db.commit()
     emit("enrollment.created", {"id": e.id, "courseId": c.id, "studentId": p.user_id, "status": e.status.value})
     return e.d()
@@ -53,10 +55,30 @@ def withdraw(enrollment_id: str, request: Request, p: Principal = Depends(authen
                               .order_by(Enrollment.created_at)).first()
         if promoted:
             promoted.status = EnrollmentStatus.enrolled
+            promoted.group_no = assign_group(db, db.get(Course, course_id))
             notify_users(db, [promoted.student_id], "You got a seat", f"A place opened up in {db.get(Course, course_id).name}; you are now enrolled.")
     audit(db, request, "enrollment.delete", "enrollment", enrollment_id, {"courseId": course_id}); db.commit()
     emit("enrollment.removed", {"id": enrollment_id, "promotedEnrollmentId": promoted.id if promoted else None})
     return Response(status_code=204)
+
+
+class GroupIn(CamelModel):
+    group: int
+
+
+@router.put("/enrollments/{enrollment_id}/group")
+def set_group(enrollment_id: str, body: GroupIn, request: Request, p: Principal = Depends(authenticate), db: Session = Depends(get_db)):
+    """Teachers of the course and admins move an enrolled student to another group."""
+    e = db.get(Enrollment, enrollment_id)
+    if not e: raise not_found("Enrollment")
+    if not can_manage_course(db, p, e.course_id): raise forbidden()
+    c = db.get(Course, e.course_id)
+    if c.archived: raise conflict("course_archived", "Archived courses are read-only")
+    if e.status != EnrollmentStatus.enrolled: raise conflict("not_enrolled", "Only enrolled students belong to a group")
+    if not 1 <= body.group <= c.group_count: raise bad_request("invalid_group", f"The course has {c.group_count} group(s)")
+    e.group_no = body.group
+    audit(db, request, "enrollment.group", "enrollment", e.id, {"group": body.group}); db.commit()
+    return e.d()
 
 
 @router.get("/enrollments/me")
@@ -64,7 +86,7 @@ def my_enrollments(p: Principal = Depends(require_roles(Role.student)), db: Sess
     rows = db.execute(select(Enrollment, Course, Grade).join(Course, Course.id == Enrollment.course_id)
                       .outerjoin(Grade, (Grade.course_id == Enrollment.course_id) & (Grade.student_id == Enrollment.student_id))
                       .where(Enrollment.student_id == p.user_id).order_by(Course.code)).all()
-    return {"items": [{"id": e.id, "status": e.status.value, "createdAt": e.d()["createdAt"], "courseId": c.id, "code": c.code, "name": c.name,
+    return {"items": [{"id": e.id, "status": e.status.value, "groupNo": e.group_no, "createdAt": e.d()["createdAt"], "courseId": c.id, "code": c.code, "name": c.name,
                        "credits": c.credits, "academicYear": c.academic_year, "semester": c.semester.value, "archived": c.archived,
                        "finalScore": g.final_score if g else None, "mark": g.mark if g else None} for e, c, g in rows]}
 

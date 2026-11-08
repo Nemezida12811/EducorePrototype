@@ -86,6 +86,13 @@ def export_me(request: Request, p: Principal = Depends(authenticate), db: Sessio
     return JSONResponse(data, headers={"content-disposition": 'attachment; filename="educore-my-data.json"'})
 
 
+@router.get("/teachers")
+def list_teachers(_: Principal = Depends(authenticate), db: Session = Depends(get_db)):
+    """Active teacher accounts: what a course form needs to pick teachers/guarantor (the full /users list is admin-only)."""
+    rows = db.scalars(select(User).where(User.role == Role.teacher, User.active.is_(True)).order_by(User.last_name, User.first_name)).all()
+    return {"items": [{"id": u.id, "firstName": u.first_name, "lastName": u.last_name, "departmentId": u.department_id} for u in rows]}
+
+
 @router.get("/users")
 def list_users(page: Page = Depends(), role: Role | None = None, active: Literal["true", "false"] | None = None,
                q: str | None = Query(None, max_length=100), _: Principal = Depends(require_roles(Role.admin)), db: Session = Depends(get_db)):

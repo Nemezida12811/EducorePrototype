@@ -89,7 +89,7 @@ export function SchedulePage() {
                           <CourseLink courseId={s.courseId} />
                         </p>
                         <p className="text-sm text-ink-soft">
-                          {s.type}, room {s.room}
+                          {s.type}{s.group ? `, group ${s.group}` : ''}, room {s.room}
                         </p>
                         {role !== 'instructor' && <p className="text-sm text-ink-soft">{teacherName(s.teacherId)}</p>}
                       </li>
@@ -107,7 +107,7 @@ export function SchedulePage() {
 
 function ScheduleCheck({ sessions, mode }: { sessions: ClassSession[]; mode: 'any' | 'resources' }) {
   const clashes = internalClashes(sessions, mode)
-  const line = (s: ClassSession) => `${findCourse(s.courseId)?.name ?? 'Course'}, ${slotLabel(s)}, room ${s.room}, ${teacherName(s.teacherId)}`
+  const line = (s: ClassSession) => `${findCourse(s.courseId)?.name ?? 'Course'}, ${slotLabel(s)}${s.group ? `, group ${s.group}` : ''}, room ${s.room}, ${teacherName(s.teacherId)}`
   return (
     <div className="mb-10">
       <Panel title="Schedule check">
