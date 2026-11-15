@@ -1,0 +1,41 @@
+# Local / course run:  cp .env.example .env  &&  docker compose up --build   ->  http://localhost:8080
+# (Coolify uses compose.coolify.yaml instead: it must not publish host ports.)
+services:
+  api:
+    build: ./backend
+    env_file: .env
+    # First start: tables are created and filled with test data (idempotent, later starts do nothing).
+    command:
+      - sh
+      - -c
+      - python -m app.seed && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips '*'
+    environment:
+      ENV: production
+      DATABASE_URL: sqlite:////data/educore.db
+      STORAGE_DIR: /data/files
+      CORS_ORIGINS: ""
+    volumes:
+      - data:/data
+    expose:
+      - "8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"]
+      interval: 10s
+      retries: 6
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      SITE_ADDRESS: ":80"
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    restart: unless-stopped
+
+volumes:
+  data:

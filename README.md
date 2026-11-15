@@ -1,16 +1,80 @@
-# Akademický informačný systém
+---
+app-url: https://voitiuk-educore.student.kpi.fei.tuke.sk
+---
 
-V tomto súbore uveďte popis systému, postup spustenia, postup testovania, očakávaný výsledok, testovacie prihlasovacie údaje. Tento text môžete následne zmazať.
+# EduCore – Akademický informačný systém
 
-Šablóna projektu obsahuje prázdne adresáre pre *frontend* a *backend* s prázdnymi súbormi `Dockerfile`. Ich obsah upravíte podľa zvolených technológií. Podľa potreby môžete vytvoriť ďalšie adresáre pre iné časti vášho systému.
+Webový akademický informačný systém: katalóg predmetov, zápis na predmety a čakacia listina, hodnotenie, rozvrh a skúšky, študijný plán, oznamy a notifikácie, administrácia používateľov a organizácie, reporty a audit. Roly: **študent, učiteľ, administrátor, super administrátor**.
 
+## Architektúra
 
-## Minimálne požiadavky na spustenie projektu
+| Služba | Technológia | Popis |
+|---|---|---|
+| `web` | React 19, Vite, TypeScript, Tailwind + Caddy | Statické SPA, Caddy preposiela `/api/*`, `/health*` a `/openapi.json` na API |
+| `api` | Python 3.12, FastAPI, SQLAlchemy | REST API (`/api/v1`), JWT + 2FA, generovanie PDF/XLSX |
+| databáza | SQLite (volume `data`) | Súbor DB aj nahrané súbory ležia na jednom volume |
 
-1. Spustenie celého systému by malo byť možné pomocou `docker-compose`. Doplňte preto do súboru `docker-compose.yml` definície všetkých služieb, exportovaných portov a ďalšie údaje.
-2. Príklad úplnej konfigurácie bez súkromných údajov by mal byť v `.env.example`. Pre spustenie by malo stačiť skopírovať tento súbor do `.env`.
-3. Pri prvom spustení kontajnerov by sa mali automaticky vytvoriť databázové tabuľky a naplniť testovacími údajmi.
-4. Aplikácia by mala poskytovať endpoint `/health/ready`, ktorý potvrdí jej pripravenosť vrátane pripojenia k databáze.
-# EduCore (full stack)
+Prehliadač komunikuje len s `web` (jeden origin, bez CORS). Port API sa nepublikuje.
 
-Start with **INTEGRATION.md** (architecture, change list, deployment). `backend/README.md` documents the API.
+## Spustenie
+
+Požiadavky: Docker s Docker Compose.
+
+```bash
+cp .env.example .env        # pre lokálne spustenie netreba nič upravovať
+docker compose up --build
+```
+
+Aplikácia beží na **http://localhost:8080** (port zmeníte v `.env` cez `WEB_PORT`).
+
+Pri prvom štarte kontajnera `api` sa automaticky vytvoria databázové tabuľky a naplnia sa testovacími údajmi (`python -m app.seed`). Ďalšie štarty nič nemenia (seed je idempotentný). Dáta zostávajú vo volume `data`; úplný reset: `docker compose down -v`.
+
+### Nasadenie (KPI Coolify)
+
+Používa sa súbor `compose.coolify.yaml` (build pack *Docker Compose*, *Docker compose location* `/compose.coolify.yaml`), ktorý nepublikuje porty hostiteľa. V Coolify nastavte premenné `JWT_SECRET` (min. 32 znakov) a `SEED_ADMIN_PASSWORD`, doménu pridajte na službu `web` (port 80). Voliteľné: `SEED_DEMO=false` vytvorí len super administrátora.
+
+Nasadená aplikácia: https://voitiuk-educore.student.kpi.fei.tuke.sk
+
+## Testovanie
+
+**Automatické testy backendu** (46 testov, SQLite v dočasnom súbore):
+
+```bash
+cd backend
+python -m venv .venv && . .venv/bin/activate      # Windows: .venv\Scripts\activate
+pip install -r requirements-dev.txt
+python -m pytest -q
+```
+
+Očakávaný výsledok: `46 passed`.
+
+**Kontrola bežiaceho systému:**
+
+| Požiadavka | Adresa | Očakávaný výsledok |
+|---|---|---|
+| Pripravenosť vrátane databázy | `/health/ready` | `200 {"status":"ok","database":"ok"}`; pri nedostupnej DB `503` |
+| Živosť procesu | `/health` | `200 {"status":"ok"}` |
+| Špecifikácia API (OpenAPI) | `/openapi.json` | JSON so špecifikáciou (77 ciest) |
+| Aplikácia | `/` | prihlasovacia obrazovka |
+
+Príklad: `curl http://localhost:8080/health/ready`
+
+## Testovacie prihlasovacie údaje
+
+Všetky účty majú heslo z premennej `SEED_ADMIN_PASSWORD` (v `.env.example`: `ChangeMe!12345`).
+
+| Rola | E-mail |
+|---|---|
+| Super administrátor | `superadmin@educore.example` |
+| Administrátor | `admin@educore.example` |
+| Učiteľ | `teacher1@educore.example`, `teacher2@educore.example` |
+| Študent | `student1@educore.example`, `student2@educore.example`, `student3@educore.example` |
+
+Testovacie dáta: predmety OOP (archivovaný), ADS2 a DB1 (kapacita 2, `student3` je na čakacej listine), rozvrh, termín skúšky, študijný plán, oznam a udalosť v kalendári.
+
+Hesla v `.env.example` sú len pre lokálne testovanie, v nasadení ich zmeňte.
+
+## Ďalšia dokumentácia
+
+- `INTEGRATION.md` – architektúra, zoznam zmien, nasadenie
+- `backend/README.md` – popis API

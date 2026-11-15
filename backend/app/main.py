@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -71,6 +72,16 @@ async def _unhandled(_: Request, e: Exception):
 
 @app.get("/health")
 def health(): return {"status": "ok"}
+
+
+@app.get("/health/ready")
+def health_ready():
+    """Readiness: the app is up AND the database answers. 503 otherwise (used by the compose healthcheck)."""
+    try:
+        with engine.connect() as c: c.execute(text("SELECT 1"))
+    except Exception:
+        return JSONResponse({"status": "unavailable", "database": "down"}, status_code=503)
+    return {"status": "ok", "database": "ok"}
 
 
 for r in (auth, users, institutions, courses, enrollments, grades, schedule, notices, files, reports, audit, billing, integrations, org, rooms):

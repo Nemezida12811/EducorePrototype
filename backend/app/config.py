@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     semester_weeks: int = 13
     timezone: str = "Europe/Bratislava"
     seed_admin_password: str = "ChangeMe!12345"
+    seed_demo: bool = False  # true = also create demo data (accounts, courses, enrollments) when ENV=production
     rate_limit_enabled: bool = True
 
     @property

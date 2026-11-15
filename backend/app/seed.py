@@ -1,4 +1,4 @@
-"""python -m app.seed  — idempotent. Production: institution + super admin only. Development: demo data too."""
+"""python -m app.seed  — idempotent. Production: institution + super admin only, unless SEED_DEMO=true. Development: demo data too."""
 from sqlalchemy import func, select
 
 from .config import get_settings
@@ -21,7 +21,7 @@ def run_seed(db) -> str:
     pw = hash_password(settings.seed_admin_password)
     inst = Institution(name="EduCore University", domain="educore.example"); db.add(inst)
     root = User(email="superadmin@educore.example", password_hash=pw, first_name="Super", last_name="Admin", role=Role.super_admin); db.add(root)
-    if settings.is_prod:
+    if settings.is_prod and not settings.seed_demo:
         db.commit()
         return f'Production seed: institution "{inst.name}" and super admin {root.email} created. Change the password immediately.'
 
