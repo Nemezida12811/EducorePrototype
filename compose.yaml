@@ -1,0 +1,47 @@
+# Coolify (Docker Compose build pack, base directory "/", compose file "/compose.yaml").
+# Required environment variables (set them in Coolify, never in git):
+#   JWT_SECRET            random string, at least 32 characters
+#   SEED_ADMIN_PASSWORD   password of superadmin@educore.example (created on first start)
+# Domain: set it on the "web" service, e.g. https://lastname-educore.student.kpi.fei.tuke.sk  (port 80 inside the container).
+# No host ports are published: the shared workers already use 80 and 443.
+services:
+  api:
+    build: ./backend
+    # The seed is idempotent: it creates the institution and the super admin on the first start and does nothing afterwards.
+    command:
+      - sh
+      - -c
+      - python -m app.seed && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips '*'
+    environment:
+      ENV: production
+      DATABASE_URL: sqlite:////data/educore.db
+      STORAGE_DIR: /data/files
+      CORS_ORIGINS: ""
+      JWT_SECRET: ${JWT_SECRET}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD}
+    volumes:
+      - data:/data
+    expose:
+      - "8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      retries: 6
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/web.Dockerfile
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      # Plain HTTP inside the container: TLS is terminated by Coolify's proxy.
+      SITE_ADDRESS: ":80"
+    expose:
+      - "80"
+    restart: unless-stopped
+
+volumes:
+  data:

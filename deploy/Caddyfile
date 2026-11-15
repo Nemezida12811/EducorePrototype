@@ -21,6 +21,9 @@
 	handle /health {
 		reverse_proxy {$API_UPSTREAM:api:8000}
 	}
+	handle /openapi.json {
+		reverse_proxy {$API_UPSTREAM:api:8000}
+	}
 
 	handle {
 		root * {$WEB_ROOT:/srv}

@@ -131,7 +131,6 @@ def password_reset(body: ResetIn, db: Session = Depends(get_db)):
     if user and user.active:
         token = random_token(32)
         db.add(PasswordReset(user_id=user.id, token_hash=sha256(token), expires_at=now() + timedelta(hours=1))); db.commit()
-        # TODO(mailer): e-mail a link containing `token`. Logged in development only.
         if settings.env == "development": print(f"[dev] password reset token for {user.email}: {token}")
     return {"message": "If the account exists, a reset e-mail has been sent."}  # identical response either way
 

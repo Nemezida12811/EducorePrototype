@@ -24,7 +24,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="EduCore API", version="0.1.0", lifespan=lifespan,
-              docs_url=None if settings.is_prod else "/docs", redoc_url=None, openapi_url=None if settings.is_prod else "/openapi.json")
+              docs_url=None if settings.is_prod else "/docs", redoc_url=None, openapi_url="/openapi.json")  # the OpenAPI spec stays public in production (course requirement); Swagger UI does not
 
 app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
                    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"], allow_headers=["content-type", "authorization", "x-api-key"],

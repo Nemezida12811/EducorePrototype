@@ -3,7 +3,7 @@
 REST API for the [EduCore frontend](https://github.com/Nemezida12811/EducorePrototype). Implements the AIS API spec sections 7.1–7.13 for a **single institution**, plus the endpoints the frontend needs that the written spec doesn't list (exam terms, timetable sessions, departments/programs, study plan, notification read state).
 
 **Stack:** Python 3.12 · FastAPI · SQLAlchemy 2 + SQLite · Pydantic v2 · PyJWT (access) + rotating refresh tokens · bcrypt · TOTP 2FA (pyotp) · reportlab (PDF) · openpyxl (XLSX) · pytest.
-Interactive API docs at **`/docs`** (disabled when `ENV=production`). JSON is camelCase to match the frontend.
+Interactive API docs at **`/docs`** (disabled when `ENV=production`; the raw spec at `/openapi.json` stays available). JSON is camelCase to match the frontend.
 
 ## Quick start
 

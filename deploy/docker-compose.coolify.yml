@@ -1,0 +1,25 @@
+services:
+  api:
+    build: ../backend
+    environment:
+      ENV: production
+      DATABASE_URL: sqlite:////data/educore.db
+      STORAGE_DIR: /data/files
+      CORS_ORIGINS: ""
+      JWT_SECRET: ${JWT_SECRET:?set in Coolify}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:?set in Coolify}
+      ALLOW_PUBLIC_REGISTRATION: "false"
+    volumes: [data:/data]
+    expose: ["8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      retries: 6
+
+  web:
+    build: { context: .., dockerfile: deploy/web.Dockerfile }
+    depends_on: { api: { condition: service_healthy } }
+    environment: { SITE_ADDRESS: ":80" }
+    expose: ["80"]
+
+volumes: { data: {} }
