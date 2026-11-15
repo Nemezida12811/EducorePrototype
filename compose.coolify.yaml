@@ -2,6 +2,7 @@
 # Required environment variables (set them in Coolify, never in git):
 #   JWT_SECRET            random string, at least 32 characters
 #   SEED_ADMIN_PASSWORD   password of every seeded account (superadmin@educore.example and the demo accounts)
+# Optional: DEMO_LOGIN (default true) shows the Student/Teacher/Admin quick sign-in buttons: set false when the system is no longer being tested.
 # Optional: SEED_DEMO (default true) creates test data on the first start; set false for the super admin only.
 # Domain: set it on the "web" service, e.g. https://lastname-educore.student.kpi.fei.tuke.sk  (port 80 inside the container).
 # No host ports are published: the shared workers already use 80 and 443.
@@ -21,6 +22,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD}
       SEED_DEMO: ${SEED_DEMO:-true}
+      DEMO_LOGIN: ${DEMO_LOGIN:-true}
     volumes:
       - data:/data
     expose:

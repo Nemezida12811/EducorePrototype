@@ -39,6 +39,14 @@ class LoginIn(EmailMixin):
     password: str = Field(min_length=1, max_length=128)
 
 
+class DemoLoginIn(CamelModel):
+    role: str = Field(pattern=r"^(student|teacher|admin)$")
+
+
+# Quick sign-in for testing (DEMO_LOGIN=true). Only these seeded accounts; the super admin is never offered.
+DEMO_ACCOUNTS = {"student": "student1@educore.example", "teacher": "teacher1@educore.example", "admin": "admin@educore.example"}
+
+
 class RefreshIn(CamelModel):
     refresh_token: str = Field(min_length=10)
 
@@ -97,6 +105,21 @@ def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
     if user.totp_enabled:
         return {"twoFactorRequired": True, "challengeToken": make_challenge_token(user)}
     audit(db, request, "auth.login", "user", user.id, actor_id=user.id)
+    return issue_tokens(db, user, request)
+
+
+@router.get("/demo-accounts")
+def demo_accounts():
+    if not settings.demo_login: raise not_found("Demo sign-in")
+    return {"items": [{"role": r, "email": e} for r, e in DEMO_ACCOUNTS.items()]}
+
+
+@router.post("/demo-login", dependencies=[strict])
+def demo_login(body: DemoLoginIn, request: Request, db: Session = Depends(get_db)):
+    if not settings.demo_login: raise not_found("Demo sign-in")
+    user = db.scalars(select(User).where(User.email == DEMO_ACCOUNTS[body.role])).first()
+    if not user or not user.active or user.totp_enabled: raise not_found("Demo account")  # an account that turned on 2FA is not bypassed
+    audit(db, request, "auth.demo_login", "user", user.id, {"role": body.role}, actor_id=user.id)
     return issue_tokens(db, user, request)
 
 

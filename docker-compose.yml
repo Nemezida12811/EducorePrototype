@@ -14,6 +14,7 @@ services:
       DATABASE_URL: sqlite:////data/educore.db
       STORAGE_DIR: /data/files
       CORS_ORIGINS: ""
+      DEMO_LOGIN: ${DEMO_LOGIN:-true}
     volumes:
       - data:/data
     expose:

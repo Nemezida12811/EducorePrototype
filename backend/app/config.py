@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     semester_weeks: int = 13
     timezone: str = "Europe/Bratislava"
     seed_admin_password: str = "ChangeMe!12345"
+    demo_login: bool = False  # true = one-click sign-in buttons for the demo student/teacher/admin (testing only, never in real use)
     seed_demo: bool = False  # true = also create demo data (accounts, courses, enrollments) when ENV=production
     rate_limit_enabled: bool = True
 

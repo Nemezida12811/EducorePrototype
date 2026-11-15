@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { api, login as apiLogin, logout as apiLogout, onSignedOut, restoreSession, verifyTwoFactor, type AuthUser } from '../lib/api';
+import { api, demoLogin, login as apiLogin, logout as apiLogout, onSignedOut, restoreSession, verifyTwoFactor, type AuthUser, type DemoRole } from '../lib/api';
 
 type Role = AuthUser['role'];
 interface AuthState {
@@ -8,6 +8,8 @@ interface AuthState {
   /** Resolves to 'ok' or, when 2FA is on, to a challenge you pass to verifyCode(). */
   signIn(email: string, password: string): Promise<'ok' | { challengeToken: string }>;
   verifyCode(challengeToken: string, code: string): Promise<void>;
+  /** Testing only: signs in as the demo student/teacher/admin when the server has DEMO_LOGIN on. */
+  demoSignIn(role: DemoRole): Promise<void>;
   signOut(): Promise<void>;
   /** Re-reads the signed-in user (after the profile was edited). */
   refreshUser(): Promise<void>;
@@ -35,13 +37,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return 'ok';
   }, []);
   const verifyCode = useCallback<AuthState['verifyCode']>(async (c, code) => { setUser(await verifyTwoFactor(c, code)); }, []);
+  const demoSignIn = useCallback<AuthState['demoSignIn']>(async (role) => { setUser(await demoLogin(role)); }, []);
   const signOut = useCallback(async () => { await apiLogout().catch(() => undefined); setUser(null); }, []);
   const refreshUser = useCallback(async () => { setUser(await api<AuthUser>('/users/me')); }, []);
 
   const value = useMemo<AuthState>(() => ({
-    user, loading, signIn, verifyCode, signOut, refreshUser,
+    user, loading, signIn, verifyCode, demoSignIn, signOut, refreshUser,
     hasRole: (...roles) => !!user && (roles.includes(user.role) || (user.role === 'super_admin' && roles.includes('admin'))),
-  }), [user, loading, signIn, verifyCode, signOut, refreshUser]);
+  }), [user, loading, signIn, verifyCode, demoSignIn, signOut, refreshUser]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

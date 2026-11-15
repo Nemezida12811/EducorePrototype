@@ -93,6 +93,15 @@ export async function login(email: string, password: string): Promise<LoginResul
   if (t.twoFactorRequired) return { twoFactorRequired: true, challengeToken: t.challengeToken };
   applyTokens(t); return { user: t.user };
 }
+export type DemoRole = 'student' | 'teacher' | 'admin';
+/** Quick sign-in for testing. Resolves to [] when the server has DEMO_LOGIN off (it answers 404), so the buttons simply don't show. */
+export async function demoAccounts(): Promise<DemoRole[]> {
+  try { return (await api<{ items: { role: DemoRole }[] }>('/auth/demo-accounts')).items.map((i) => i.role); } catch { return []; }
+}
+export async function demoLogin(role: DemoRole): Promise<AuthUser> {
+  const t = await api<any>('/auth/demo-login', { method: 'POST', json: { role } });
+  applyTokens(t); return t.user;
+}
 export async function verifyTwoFactor(challengeToken: string, code: string): Promise<AuthUser> {
   const t = await api<any>('/auth/2fa/verify', { method: 'POST', json: { challengeToken, code } });
   applyTokens(t); return t.user;

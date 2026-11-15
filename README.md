@@ -72,6 +72,8 @@ Všetky účty majú heslo z premennej `SEED_ADMIN_PASSWORD` (v `.env.example`: 
 
 Testovacie dáta: predmety OOP (archivovaný), ADS2 a DB1 (kapacita 2, `student3` je na čakacej listine), rozvrh, termín skúšky, študijný plán, oznam a udalosť v kalendári.
 
+**Rýchle prihlásenie:** kým je `DEMO_LOGIN=true` (predvolené v `.env.example` aj v `compose.coolify.yaml`), prihlasovacia obrazovka zobrazí tlačidlá **Student**, **Teacher** a **Admin**, ktoré prihlásia testovací účet bez hesla (`student1@`, `teacher1@`, `admin@`). Super administrátor sa takto prihlásiť nedá. Po skončení testovania nastavte `DEMO_LOGIN=false` (v Coolify premenná prostredia a Deploy), tlačidlá aj endpointy `/api/v1/auth/demo-*` zmiznú.
+
 Hesla v `.env.example` sú len pre lokálne testovanie, v nasadení ich zmeňte.
 
 ## Ďalšia dokumentácia
