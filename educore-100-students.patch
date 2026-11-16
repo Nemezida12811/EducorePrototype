@@ -1,0 +1,265 @@
+From 40942adcf278a89f99b35955197b47abff85eb80 Mon Sep 17 00:00:00 2001
+From: Roma <bender12811@gmail.com>
+Date: Mon, 16 Nov 2026 08:54:56 +0000
+Subject: [PATCH] Test data: 100 students with 4-5 active courses each,
+ generated on start when SEED_DEMO=true
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01EnN33jwNrUoAzNPZbKamdQ
+---
+ README.md                |   2 +-
+ backend/README.md        |   2 +-
+ backend/app/seed_data.py | 128 ++++++++++++++++++++++++++++-----------
+ compose.coolify.yaml     |   7 ++-
+ docker-compose.yml       |   4 +-
+ 5 files changed, 100 insertions(+), 43 deletions(-)
+
+diff --git a/README.md b/README.md
+index c3f215f..ec634bc 100644
+--- a/README.md
++++ b/README.md
+@@ -27,7 +27,7 @@ docker compose up --build
+ 
+ Aplikácia beží na **http://localhost:8080** (port zmeníte v `.env` cez `WEB_PORT`).
+ 
+-Pri prvom štarte kontajnera `api` sa automaticky vytvoria databázové tabuľky a naplnia sa testovacími údajmi (`python -m app.seed`). Ďalšie štarty nič nemenia (seed je idempotentný). Dáta zostávajú vo volume `data`; úplný reset: `docker compose down -v`.
++Pri prvom štarte kontajnera `api` sa automaticky vytvoria databázové tabuľky a naplnia sa testovacími údajmi (`python -m app.seed` a `python -m app.seed_data`: 100 študentov, každý so 4–5 aktívne zapísanými predmetmi, 14 učiteľov, 4 katedry, 5 študijných programov, 26 predmetov s rozvrhom bez kolízií, známky, skúškové termíny a oznamy). Ďalšie štarty nič nemenia (seed je idempotentný). Dáta zostávajú vo volume `data`; úplný reset: `docker compose down -v`.
+ 
+ ### Nasadenie (KPI Coolify)
+ 
+diff --git a/backend/README.md b/backend/README.md
+index 102a968..18c766e 100644
+--- a/backend/README.md
++++ b/backend/README.md
+@@ -27,7 +27,7 @@ Drafts: a course has `status` (`draft` | `published`, default `published` for AP
+ 
+ Schema upgrades: there is no migration tool yet, so `upgrade_schema()` (run at startup) adds missing nullable / defaulted columns to tables created by an older version. Anything bigger needs Alembic.
+ 
+-Bulk test data: `python -m app.seed_data [--students 150] [--seed 1]` adds ~150 students, 12 teachers, 4 departments, 5 programs with study plans, 26 courses with conflict-free timetables, prerequisites, grades, waitlists, exam terms and registrations, announcements and calendar dates (deterministic per `--seed`; refuses `ENV=production`; run once, delete `educore.db` to start over).
++Bulk test data: `python -m app.seed_data [--students 100] [--seed 1]` tops the database up to 100 students in total (the demo seed's student1-3 included) and gives every one of them 4-5 active (enrolled, not waitlisted) winter courses: own study plan first, electives of other departments after, never a timetable clash, a full course or a missing prerequisite. It also adds 12 teachers, 4 departments, 5 programs with study plans, 26 courses with conflict-free timetables, a graded common first year, mid-semester partial grades, a few waitlists, exam terms and registrations, announcements and calendar dates (run once, delete `educore.db` to start over). With `ENV=production` it runs only when `SEED_DEMO=true`; both compose files run it on start after `app.seed`.
+ 
+ Demo accounts (dev seed only; password = `SEED_ADMIN_PASSWORD`): `superadmin@`, `admin@`, `teacher1@`, `teacher2@`, `student1@`…`student3@educore.example`.
+ With `ENV=production` the seed creates only the institution and one super admin – **change that password immediately**.
+diff --git a/backend/app/seed_data.py b/backend/app/seed_data.py
+index 6eeb4e3..372a1a5 100644
+--- a/backend/app/seed_data.py
++++ b/backend/app/seed_data.py
+@@ -1,4 +1,4 @@
+-"""python -m app.seed_data [--students 150] [--seed 1]
++"""python -m app.seed_data [--students 100] [--seed 1]
+ 
+ Fills the database with generated, internally consistent test data: departments, study programs and plans, teachers, students, courses with
+ conflict-free timetables, prerequisites, enrollments (with waitlists), grades, exam terms and registrations, announcements and calendar dates.
+@@ -77,7 +77,7 @@ def female_surname(s: str) -> str:
+ 
+ 
+ def generate(db, n_students: int, seed: int) -> str:
+-    if settings.is_prod: return "Refusing to generate test data with ENV=production."
++    if settings.is_prod and not settings.seed_demo: return "Refusing to generate test data with ENV=production (set SEED_DEMO=true to allow it)."
+     if db.scalar(select(Course.id).where(Course.code == "KPI/PRG1")): return "Generated data is already present, nothing to do."
+     rnd = random.Random(seed)
+     pw = hash_password(settings.seed_admin_password)  # one hash for every account: bcrypt is slow on purpose
+@@ -192,51 +192,107 @@ def generate(db, n_students: int, seed: int) -> str:
+         plan_of[p.id] = ids
+     db.flush()
+ 
+-    # ---- students: grades for last year's courses, enrollments for this winter's courses
++    # ---- students: grades for last year's courses, then 4-5 active (enrolled, not waitlisted) winter courses each.
++    # Courses of the student's own study plan come first, published winter courses of other departments fill the rest as electives.
+     sessions_of: dict[str, list[CourseSession]] = {}
+     for s in db.scalars(select(CourseSession)): sessions_of.setdefault(s.course_id, []).append(s)
+     def overlaps(a: CourseSession, b: CourseSession) -> bool:
+         return a.day_of_week == b.day_of_week and a.start_time < b.end_time and b.start_time < a.end_time
++    active = [c for c in db.scalars(select(Course).where(Course.archived.is_(False), Course.status == "published", Course.semester == Semester.winter))]
++    prereqs_of: dict[str, set[str]] = {}
++    for cp in db.scalars(select(CoursePrerequisite)): prereqs_of.setdefault(cp.course_id, set()).add(cp.prerequisite_id)
+     taken: dict[str, int] = {}
+     group_sizes: dict[str, dict[int, int]] = {}
++    for e in db.scalars(select(Enrollment).where(Enrollment.status == EnrollmentStatus.enrolled)):  # seats already used by the demo seed
++        taken[e.course_id] = taken.get(e.course_id, 0) + 1
++        if e.group_no: group_sizes.setdefault(e.course_id, {}).setdefault(e.group_no, 0); group_sizes[e.course_id][e.group_no] += 1
+     teacher_user = {t.id: t for ts in teachers.values() for t in ts}
+-    students: list[tuple[User, StudyProgram]] = []
+-    for i in range(n_students):
+-        p, _ = programs[i % len(programs)] if rnd.random() < 0.6 else rnd.choice(programs)
+-        f, l = person()
+-        u = make_user(f, l, Role.student, prog=p); db.flush(); students.append((u, p))
++    plan_ids = {p.id: {courses[c].id for c in codes} for p, codes in ((p, plan_of[p.id]) for p, _ in programs)}
++
++    def enroll_up_to(u: User, target: int, plan: set[str], passed: set[str], level: float, waitlist_chance: float = 0.15) -> None:
++        """Enroll u in active courses until it has `target` of them: no timetable clash, prerequisites passed, a free seat in some group."""
++        mine_ids = set(db.scalars(select(Enrollment.course_id).where(Enrollment.student_id == u.id)))
++        mine: list[CourseSession] = []
++        have = 0
++        for e in db.scalars(select(Enrollment).where(Enrollment.student_id == u.id, Enrollment.status == EnrollmentStatus.enrolled)):
++            c = db.get(Course, e.course_id)
++            if c.archived: continue
++            have += 1; mine += [x for x in sessions_of.get(c.id, []) if x.group_no in (None, e.group_no)]
++        def attempt():
++            own = [c for c in active if c.id in plan]; other = [c for c in active if c.id not in plan]
++            rnd.shuffle(own); rnd.shuffle(other)
++            picks, waits, sess, n, used = [], [], list(mine), have, dict(taken)
++            for c in own + other:
++                if n >= target: break
++                if c.id in mine_ids or not prereqs_of.get(c.id, set()) <= passed: continue
++                if used.get(c.id, 0) >= c.capacity:  # full: sometimes the student queues up anyway (does not count towards the target)
++                    if rnd.random() < waitlist_chance: waits.append(c)
++                    continue
++                sizes = {g: group_sizes.get(c.id, {}).get(g, 0) for g in range(1, max(1, c.group_count) + 1)}
++                for g in sorted(sizes, key=lambda x: (sizes[x], x)):  # the emptiest group without a clash, like the API does
++                    its = [x for x in sessions_of.get(c.id, []) if x.group_no in (None, g)]
++                    if any(overlaps(x, y) for x in its for y in sess): continue
++                    picks.append((c, g)); sess += its; used[c.id] = used.get(c.id, 0) + 1; n += 1
++                    break
++            return picks, waits, n
++        best = None
++        for _ in range(30):  # greedy picking can paint itself into a corner: reshuffle a few times
++            r = attempt()
++            if best is None or r[2] > best[2]: best = r
++            if r[2] >= target: break
++        picks, waits, _n = best
++        for c in waits: db.add(Enrollment(course_id=c.id, student_id=u.id, status=EnrollmentStatus.waitlisted))
++        for c, g in picks:
++            db.add(Enrollment(course_id=c.id, student_id=u.id, status=EnrollmentStatus.enrolled, group_no=g))
++            sizes = group_sizes.setdefault(c.id, {}); sizes[g] = sizes.get(g, 0) + 1; taken[c.id] = taken.get(c.id, 0) + 1
++            # mid-semester: the first one or two components are graded for most students
++            k = rnd.choice([0, 1, 1, 2, 2])
++            comps = {s["name"]: max(0, min(s["maxPoints"], round(s["maxPoints"] * max(0.2, min(1, rnd.gauss(level, 14) / 100)))))
++                     for s in c.grading_scheme[:k]}
++            if comps and not db.scalar(select(Grade.id).where(Grade.course_id == c.id, Grade.student_id == u.id)):
++                db.add(Grade(course_id=c.id, student_id=u.id, components=comps, updated_by=c.guarantor_id))
++        db.flush()
++
++    def first_year(u: User, level: float) -> set[str]:
++        """Final grades for the common first year (last year's courses, every program); returns the ids of the passed ones."""
+         passed: set[str] = set()
+-        base = rnd.gauss(80, 10)
+-        for code in sorted(plan_of[p.id]):
++        for code in sorted(c[0] for c in COURSES if c[3] is None):
+             c = courses[code]
+-            if not c.archived: continue
+-            frac = max(0.35, min(1.0, rnd.gauss(base, 12) / 100))
++            frac = max(0.35, min(1.0, rnd.gauss(level, 12) / 100))
+             comps = {s["name"]: max(0, min(s["maxPoints"], round(s["maxPoints"] * max(0, min(1, frac + rnd.uniform(-0.12, 0.12)))))) for s in c.grading_scheme}
+             score, mark = compute_final(c.grading_scheme, comps)
++            if mark == "FX" and len(passed) < len([x for x in COURSES if x[3] is None and x[0] < code]):  # one failure at most: the rest were passed on a resit
++                comps = {s["name"]: max(comps[s["name"]], s["minPoints"] + rnd.randint(0, 4)) for s in c.grading_scheme}
++                need = 61 + rnd.randint(0, 6) - sum(comps.values())  # E or D: just enough to pass
++                if need > 0: comps[c.grading_scheme[-1]["name"]] = min(c.grading_scheme[-1]["maxPoints"], comps[c.grading_scheme[-1]["name"]] + need)
++                score, mark = compute_final(c.grading_scheme, comps)
+             db.add(Enrollment(course_id=c.id, student_id=u.id)); db.add(Grade(course_id=c.id, student_id=u.id, components=comps, final_score=score, mark=mark,
+                                                                               updated_by=c.guarantor_id))
+-            if mark != "FX": passed.add(code)
+-        mine: list[CourseSession] = []
+-        candidates = [code for code in sorted(plan_of[p.id]) if not courses[code].archived and courses[code].semester.value == "winter"
+-                      and all(pre in passed for pre in COURSES[[x[0] for x in COURSES].index(code)][5])]
+-        rnd.shuffle(candidates)
+-        for code in candidates[: rnd.randint(4, 6)]:
+-            c = courses[code]
+-            sizes = group_sizes.setdefault(c.id, {g: 0 for g in range(1, c.group_count + 1)})
+-            g = min(sizes, key=lambda x: (sizes[x], x))  # the emptiest group, like the API does
+-            its = [x for x in sessions_of.get(c.id, []) if x.group_no in (None, g)]
+-            if any(overlaps(a, b) for a in its for b in mine): continue
+-            full = taken.get(c.id, 0) >= c.capacity
+-            db.add(Enrollment(course_id=c.id, student_id=u.id, status=EnrollmentStatus.waitlisted if full else EnrollmentStatus.enrolled, group_no=None if full else g))
+-            if not full:
+-                sizes[g] += 1
+-                taken[c.id] = taken.get(c.id, 0) + 1; mine += its
+-                # mid-semester: the first one or two components are graded for most students
+-                k = rnd.choice([0, 1, 1, 2, 2])
+-                comps = {s["name"]: max(0, min(s["maxPoints"], round(s["maxPoints"] * max(0.2, min(1, rnd.gauss(base, 14) / 100)))))
+-                         for s in c.grading_scheme[:k]}
+-                if comps: db.add(Grade(course_id=c.id, student_id=u.id, components=comps, updated_by=c.guarantor_id))
+-    db.flush()
++            if mark != "FX": passed.add(c.id)
++        db.flush()
++        return passed
++
++    # the students that already exist (the demo seed's student1-3) get topped up too
++    existing = list(db.scalars(select(User).where(User.role == Role.student)))
++    for u in existing:
++        level = rnd.gauss(80, 10)
++        passed = {g.course_id for g in db.scalars(select(Grade).where(Grade.student_id == u.id)) if g.mark and g.mark != "FX"}
++        if not db.scalar(select(Enrollment.id).where(Enrollment.student_id == u.id, Enrollment.course_id == courses["KPI/PRG1"].id)): passed |= first_year(u, level)
++        enroll_up_to(u, rnd.choice([4, 5]), plan_ids.get(u.study_program_id, set()), passed, level, waitlist_chance=0)
++    n_new = max(0, n_students - len(existing))
++    students: list[tuple[User, StudyProgram]] = [(u, None) for u in existing]
++    for i in range(n_new):
++        p, _ = programs[i % len(programs)] if rnd.random() < 0.6 else rnd.choice(programs)
++        f, l = person()
++        u = make_user(f, l, Role.student, prog=p); db.flush(); students.append((u, p))
++        base = rnd.gauss(80, 10)
++        passed = first_year(u, base)
++        db.flush()
++        enroll_up_to(u, rnd.choice([4, 4, 5]), plan_ids[p.id], passed, base)
++    short = [u.email for u, _ in students
++             if db.scalar(select(func.count()).select_from(Enrollment).join(Course, Course.id == Enrollment.course_id)
++                          .where(Enrollment.student_id == u.id, Enrollment.status == EnrollmentStatus.enrolled, Course.archived.is_(False))) < 4]
++    if short: print(f"Warning: {len(short)} students have fewer than 4 active courses (no free seats or clash-free slots): {', '.join(short[:5])}")
+ 
+     # ---- exam terms (January and early February) and registrations
+     day = datetime(2027, 1, 11)
+@@ -298,14 +354,14 @@ def generate(db, n_students: int, seed: int) -> str:
+     from .seed_rooms import remap
+     remap(db)  # rooms by seat count: the smallest room that holds the enrolled students
+     waiting = db.scalar(select(func.count()).select_from(Enrollment).where(Enrollment.status == EnrollmentStatus.waitlisted))
+-    return (f"Generated {len(COURSES)} courses, {sum(len(v) for v in teachers.values())} teachers, {n_students} students, {len(exams)} exam terms "
++    return (f"Generated {len(COURSES)} courses, {sum(len(v) for v in teachers.values())} teachers, {len(students)} students ({n_new} new), {len(exams)} exam terms "
+             f"({sum(reg_count.values())} registrations), {waiting} waitlisted enrollments. Password of all generated accounts: SEED_ADMIN_PASSWORD.")
+ 
+ 
+ if __name__ == "__main__":
+     from . import models  # noqa: F401
+     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+-    ap.add_argument("--students", type=int, default=150)
++    ap.add_argument("--students", type=int, default=100, help="total number of students after generation (the existing ones count)")
+     ap.add_argument("--seed", type=int, default=1)
+     a = ap.parse_args()
+     Base.metadata.create_all(engine)
+diff --git a/compose.coolify.yaml b/compose.coolify.yaml
+index 4a24718..eda42da 100644
+--- a/compose.coolify.yaml
++++ b/compose.coolify.yaml
+@@ -3,17 +3,18 @@
+ #   JWT_SECRET            random string, at least 32 characters
+ #   SEED_ADMIN_PASSWORD   password of every seeded account (superadmin@educore.example and the demo accounts)
+ # Optional: DEMO_LOGIN (default true) shows the Student/Teacher/Admin quick sign-in buttons: set false when the system is no longer being tested.
+-# Optional: SEED_DEMO (default true) creates test data on the first start; set false for the super admin only.
++# Optional: SEED_DEMO (default true) creates test data on the first start (app.seed + app.seed_data); set false for the super admin only.
+ # Domain: set it on the "web" service, e.g. https://lastname-educore.student.kpi.fei.tuke.sk  (port 80 inside the container).
+ # No host ports are published: the shared workers already use 80 and 443.
+ services:
+   api:
+     build: ./backend
+-    # The seed is idempotent: it creates the institution and the super admin on the first start and does nothing afterwards.
++    # Both seeds are idempotent: the first start creates the institution and the super admin and, with SEED_DEMO=true, the test data
++    # (100 students with 4-5 active courses each, teachers, courses, timetables, grades, exams); later starts do nothing.
+     command:
+       - sh
+       - -c
+-      - python -m app.seed && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips '*'
++      - python -m app.seed && python -m app.seed_data && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips '*'
+     environment:
+       ENV: production
+       DATABASE_URL: sqlite:////data/educore.db
+diff --git a/docker-compose.yml b/docker-compose.yml
+index 105c95a..1252251 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -4,11 +4,11 @@ services:
+   api:
+     build: ./backend
+     env_file: .env
+-    # First start: tables are created and filled with test data (idempotent, later starts do nothing).
++    # First start: tables are created and filled with test data (app.seed + app.seed_data, 100 students; idempotent, later starts do nothing).
+     command:
+       - sh
+       - -c
+-      - python -m app.seed && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips '*'
++      - python -m app.seed && python -m app.seed_data && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips '*'
+     environment:
+       ENV: production
+       DATABASE_URL: sqlite:////data/educore.db
+-- 
+2.43.0
+

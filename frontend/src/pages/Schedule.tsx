@@ -1,4 +1,4 @@
-import { CheckCircle2, Download, TriangleAlert } from 'lucide-react'
+import { Download, TriangleAlert } from 'lucide-react'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { CourseLink } from '../components/ui/CourseLink'
@@ -108,31 +108,23 @@ export function SchedulePage() {
 function ScheduleCheck({ sessions, mode }: { sessions: ClassSession[]; mode: 'any' | 'resources' }) {
   const clashes = internalClashes(sessions, mode)
   const line = (s: ClassSession) => `${findCourse(s.courseId)?.name ?? 'Course'}, ${slotLabel(s)}${s.group ? `, group ${s.group}` : ''}, room ${s.room}, ${teacherName(s.teacherId)}`
+  if (clashes.length === 0) return null // nothing to report: the panel appears only when there are clashes
   return (
     <div className="mb-10">
       <Panel title="Schedule check">
-        {clashes.length === 0 ? (
-          <p className="flex items-center gap-2 font-semibold">
-            <CheckCircle2 aria-hidden="true" className="size-5 shrink-0" />
-            {mode === 'resources' ? 'No room or teacher is double-booked.' : 'No overlapping sessions.'}
-          </p>
-        ) : (
-          <>
-            <p className="mb-3 flex items-center gap-2 font-semibold" role="alert">
-              <TriangleAlert aria-hidden="true" className="size-5 shrink-0" />
-              {clashes.length} {clashes.length === 1 ? 'clash' : 'clashes'} found
-            </p>
-            <ul className="divide-y divide-rose">
-              {clashes.map((c) => (
-                <li key={`${c.a.id}-${c.b.id}`} className="py-3 first:pt-0 last:pb-0">
-                  <p className="font-semibold">{c.why}</p>
-                  <p className="text-sm text-ink-soft">{line(c.a)}</p>
-                  <p className="text-sm text-ink-soft">{line(c.b)}</p>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
+        <p className="mb-3 flex items-center gap-2 font-semibold" role="alert">
+          <TriangleAlert aria-hidden="true" className="size-5 shrink-0" />
+          {clashes.length} {clashes.length === 1 ? 'clash' : 'clashes'} found
+        </p>
+        <ul className="divide-y divide-rose">
+          {clashes.map((c) => (
+            <li key={`${c.a.id}-${c.b.id}`} className="py-3 first:pt-0 last:pb-0">
+              <p className="font-semibold">{c.why}</p>
+              <p className="text-sm text-ink-soft">{line(c.a)}</p>
+              <p className="text-sm text-ink-soft">{line(c.b)}</p>
+            </li>
+          ))}
+        </ul>
       </Panel>
     </div>
   )

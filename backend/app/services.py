@@ -63,8 +63,8 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 # ---------- grades ----------
 def mark_for(score: int) -> str:
-    """Slovak ECTS-style scale, identical to the one the frontend shows: A 93-100, B 85-92, C 77-84, D 69-76, E 61-68, FX below 61."""
-    return "A" if score >= 93 else "B" if score >= 85 else "C" if score >= 77 else "D" if score >= 69 else "E" if score >= 61 else "FX"
+    """Mark scale, identical to the one the frontend shows: A 91-100, B 81-90, C 71-80, D 61-70, E 51-60, FX below 51."""
+    return "A" if score >= 91 else "B" if score >= 81 else "C" if score >= 71 else "D" if score >= 61 else "E" if score >= 51 else "FX"
 
 
 def is_passed(mark: str | None) -> bool: return mark is not None and mark != "FX"
@@ -78,6 +78,20 @@ def compute_final(scheme: list[dict], components: dict) -> tuple[int | None, str
     # A component below its required minimum fails the course whatever the total is.
     if any(components[c["name"]] < c.get("minPoints", 0) for c in scheme): return score, "FX"
     return score, mark_for(score)
+
+
+def recompute_marks(db: Session) -> int:
+    """Re-derive every stored final mark from its points with the current scale (marks are stored, so a scale change would leave old ones behind).
+    Idempotent: only rows whose mark differs are touched. Returns the number of changed grades."""
+    from .models import Course, Grade
+    changed = 0
+    for g, c in db.execute(select(Grade, Course).join(Course, Course.id == Grade.course_id).where(Grade.final_score.is_not(None))):
+        score, mark = compute_final(c.grading_scheme, g.components or {})
+        if mark is None: mark = mark_for(g.final_score)  # points no longer match the scheme: keep the stored score, re-mark it
+        else: g.final_score = score
+        if g.mark != mark: g.mark = mark; changed += 1
+    db.commit()
+    return changed
 
 
 # ---------- users ----------

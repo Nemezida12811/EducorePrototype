@@ -27,7 +27,7 @@ docker compose up --build
 
 Aplikácia beží na **http://localhost:8080** (port zmeníte v `.env` cez `WEB_PORT`).
 
-Pri prvom štarte kontajnera `api` sa automaticky vytvoria databázové tabuľky a naplnia sa testovacími údajmi (`python -m app.seed` a `python -m app.seed_data`: 100 študentov, každý so 4–5 aktívne zapísanými predmetmi, 14 učiteľov, 4 katedry, 5 študijných programov, 26 predmetov s rozvrhom bez kolízií, známky, skúškové termíny a oznamy). Ďalšie štarty nič nemenia (seed je idempotentný). Dáta zostávajú vo volume `data`; úplný reset: `docker compose down -v`.
+Pri prvom štarte kontajnera `api` sa automaticky vytvoria databázové tabuľky a naplnia sa testovacími údajmi (`python -m app.seed` a `python -m app.seed_data`: 100 študentov, každý so 4–5 aktívne zapísanými predmetmi, 30 učiteľov, 4 katedry, 5 študijných programov, 32 predmetov s rozvrhom bez kolízií, materiály predmetov (PDF), oznámenia a notifikácie; účty rýchleho prihlásenia (student1@, teacher1@) majú plnohodnotné údaje; ~90 % študentov, učiteľov, predmetov a rozvrhu patrí katedre KPI, známky, skúškové termíny a oznamy). Ďalšie štarty nič nemenia (seed je idempotentný). Dáta zostávajú vo volume `data`; úplný reset: `docker compose down -v`.
 
 ### Nasadenie (KPI Coolify)
 

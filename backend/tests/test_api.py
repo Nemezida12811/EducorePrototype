@@ -237,7 +237,17 @@ class TestMiscAdditions:
 
     def test_mark_scale_matches_frontend(self):
         from app.services import mark_for
-        assert [mark_for(x) for x in (100, 93, 92, 85, 84, 77, 76, 69, 68, 61, 60, 0)] == ["A", "A", "B", "B", "C", "C", "D", "D", "E", "E", "FX", "FX"]
+        assert [mark_for(x) for x in (100, 91, 90, 81, 80, 71, 70, 61, 60, 51, 50, 0)] == ["A", "A", "B", "B", "C", "C", "D", "D", "E", "E", "FX", "FX"]
+
+    def test_stored_marks_follow_the_current_scale(self, api):
+        from app.db import SessionLocal
+        from app.models import Grade
+        from app.services import recompute_marks
+        with SessionLocal() as db:
+            g = db.query(Grade).filter(Grade.final_score.is_not(None)).first()  # the demo seed's OOP grade: 83 points
+            g.mark = "C"; db.commit()  # what the old scale (C 77-84) stored
+            assert recompute_marks(db) == 1 and db.get(Grade, g.id).mark == "B"
+            assert recompute_marks(db) == 0  # idempotent
 
     def test_program_student_counts(self, api):
         prog = api.get("admin", "/study-programs").json()["items"][0]
@@ -274,7 +284,7 @@ class TestGradingMinimums:
         g = api.post("t1", "/grades", {"courseId": cid, "studentId": s1, "components": {"Labs 1": 50, "Exam": 15}}).json()
         assert g["finalScore"] == 65 and g["mark"] == "FX"  # 65 would be a D, but the exam is below its minimum
         g = api.post("t1", "/grades", {"courseId": cid, "studentId": s1, "components": {"Exam": 25}}).json()
-        assert g["finalScore"] == 75 and g["mark"] == "D"
+        assert g["finalScore"] == 75 and g["mark"] == "C"
 
     def test_minimum_cannot_exceed_maximum(self, api):
         bad = [{"name": "A", "maxPoints": 40, "minPoints": 50}, {"name": "B", "maxPoints": 60}]

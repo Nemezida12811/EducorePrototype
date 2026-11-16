@@ -192,7 +192,7 @@ export function GradingBuilder({ rows, onChange, built, editing }: Props) {
       </div>
 
       <p className="mt-3 text-sm text-ink-soft">
-        To pass, a student needs at least 61 points in total (mark {scoreToMark(61)} or better)
+        To pass, a student needs at least 51 points in total (mark {scoreToMark(51)} or better)
         {minimums.length > 0 ? `, and at least ${minimums.map((r) => `${r.min} on ${Number(r.count) > 1 ? 'each ' : ''}${r.name.trim() || 'a component'}`).join(', ')}` : ''}.
         Missing a minimum gives FX even when the total is higher.
       </p>

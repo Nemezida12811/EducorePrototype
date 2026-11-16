@@ -1,14 +1,14 @@
 import { gradesStore } from '../data/stores'
 import type { GradingComponent, Mark, StudentGrade } from '../data/types'
 
-/** Slovak ECTS-style scale on the 0 to 100 final score (the API uses the same one). */
+/** Mark scale on the 0 to 100 final score (the API uses the same one: app/services.py mark_for). */
 export const SCALE: { mark: Mark; min: number; range: string; name: string }[] = [
-  { mark: 'A', min: 93, range: '93 to 100', name: 'Excellent' },
-  { mark: 'B', min: 85, range: '85 to 92', name: 'Very good' },
-  { mark: 'C', min: 77, range: '77 to 84', name: 'Good' },
-  { mark: 'D', min: 69, range: '69 to 76', name: 'Satisfactory' },
-  { mark: 'E', min: 61, range: '61 to 68', name: 'Sufficient' },
-  { mark: 'FX', min: 0, range: 'Below 61', name: 'Fail' },
+  { mark: 'A', min: 91, range: '91 to 100', name: 'Excellent' },
+  { mark: 'B', min: 81, range: '81 to 90', name: 'Very good' },
+  { mark: 'C', min: 71, range: '71 to 80', name: 'Good' },
+  { mark: 'D', min: 61, range: '61 to 70', name: 'Satisfactory' },
+  { mark: 'E', min: 51, range: '51 to 60', name: 'Sufficient' },
+  { mark: 'FX', min: 0, range: 'Below 51', name: 'Fail' },
 ]
 
 export const scoreToMark = (score: number): Mark => SCALE.find((s) => score >= s.min)!.mark

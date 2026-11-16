@@ -21,6 +21,9 @@ async def lifespan(_: FastAPI):
     from . import models  # noqa: F401  (register tables)
     Base.metadata.create_all(engine)  # simple schema bootstrap; use Alembic once the schema starts evolving
     upgrade_schema()  # adds columns introduced after the database was created
+    from .db import SessionLocal
+    from .services import recompute_marks
+    with SessionLocal() as db: recompute_marks(db)  # stored marks follow the current mark scale
     yield
 
 
