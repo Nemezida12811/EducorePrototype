@@ -1,4 +1,4 @@
-"""python -m app.seed_data [--students 150] [--seed 1]
+"""python -m app.seed_data [--students 100] [--seed 1]
 
 Fills the database with generated, internally consistent test data: departments, study programs and plans, teachers, students, courses with
 conflict-free timetables, prerequisites, enrollments (with waitlists), grades, exam terms and registrations, announcements and calendar dates.
@@ -77,7 +77,7 @@ def female_surname(s: str) -> str:
 
 
 def generate(db, n_students: int, seed: int) -> str:
-    if settings.is_prod: return "Refusing to generate test data with ENV=production."
+    if settings.is_prod and not settings.seed_demo: return "Refusing to generate test data with ENV=production (set SEED_DEMO=true to allow it)."
     if db.scalar(select(Course.id).where(Course.code == "KPI/PRG1")): return "Generated data is already present, nothing to do."
     rnd = random.Random(seed)
     pw = hash_password(settings.seed_admin_password)  # one hash for every account: bcrypt is slow on purpose
@@ -192,51 +192,107 @@ def generate(db, n_students: int, seed: int) -> str:
         plan_of[p.id] = ids
     db.flush()
 
-    # ---- students: grades for last year's courses, enrollments for this winter's courses
+    # ---- students: grades for last year's courses, then 4-5 active (enrolled, not waitlisted) winter courses each.
+    # Courses of the student's own study plan come first, published winter courses of other departments fill the rest as electives.
     sessions_of: dict[str, list[CourseSession]] = {}
     for s in db.scalars(select(CourseSession)): sessions_of.setdefault(s.course_id, []).append(s)
     def overlaps(a: CourseSession, b: CourseSession) -> bool:
         return a.day_of_week == b.day_of_week and a.start_time < b.end_time and b.start_time < a.end_time
+    active = [c for c in db.scalars(select(Course).where(Course.archived.is_(False), Course.status == "published", Course.semester == Semester.winter))]
+    prereqs_of: dict[str, set[str]] = {}
+    for cp in db.scalars(select(CoursePrerequisite)): prereqs_of.setdefault(cp.course_id, set()).add(cp.prerequisite_id)
     taken: dict[str, int] = {}
     group_sizes: dict[str, dict[int, int]] = {}
+    for e in db.scalars(select(Enrollment).where(Enrollment.status == EnrollmentStatus.enrolled)):  # seats already used by the demo seed
+        taken[e.course_id] = taken.get(e.course_id, 0) + 1
+        if e.group_no: group_sizes.setdefault(e.course_id, {}).setdefault(e.group_no, 0); group_sizes[e.course_id][e.group_no] += 1
     teacher_user = {t.id: t for ts in teachers.values() for t in ts}
-    students: list[tuple[User, StudyProgram]] = []
-    for i in range(n_students):
+    plan_ids = {p.id: {courses[c].id for c in codes} for p, codes in ((p, plan_of[p.id]) for p, _ in programs)}
+
+    def enroll_up_to(u: User, target: int, plan: set[str], passed: set[str], level: float, waitlist_chance: float = 0.15) -> None:
+        """Enroll u in active courses until it has `target` of them: no timetable clash, prerequisites passed, a free seat in some group."""
+        mine_ids = set(db.scalars(select(Enrollment.course_id).where(Enrollment.student_id == u.id)))
+        mine: list[CourseSession] = []
+        have = 0
+        for e in db.scalars(select(Enrollment).where(Enrollment.student_id == u.id, Enrollment.status == EnrollmentStatus.enrolled)):
+            c = db.get(Course, e.course_id)
+            if c.archived: continue
+            have += 1; mine += [x for x in sessions_of.get(c.id, []) if x.group_no in (None, e.group_no)]
+        def attempt():
+            own = [c for c in active if c.id in plan]; other = [c for c in active if c.id not in plan]
+            rnd.shuffle(own); rnd.shuffle(other)
+            picks, waits, sess, n, used = [], [], list(mine), have, dict(taken)
+            for c in own + other:
+                if n >= target: break
+                if c.id in mine_ids or not prereqs_of.get(c.id, set()) <= passed: continue
+                if used.get(c.id, 0) >= c.capacity:  # full: sometimes the student queues up anyway (does not count towards the target)
+                    if rnd.random() < waitlist_chance: waits.append(c)
+                    continue
+                sizes = {g: group_sizes.get(c.id, {}).get(g, 0) for g in range(1, max(1, c.group_count) + 1)}
+                for g in sorted(sizes, key=lambda x: (sizes[x], x)):  # the emptiest group without a clash, like the API does
+                    its = [x for x in sessions_of.get(c.id, []) if x.group_no in (None, g)]
+                    if any(overlaps(x, y) for x in its for y in sess): continue
+                    picks.append((c, g)); sess += its; used[c.id] = used.get(c.id, 0) + 1; n += 1
+                    break
+            return picks, waits, n
+        best = None
+        for _ in range(30):  # greedy picking can paint itself into a corner: reshuffle a few times
+            r = attempt()
+            if best is None or r[2] > best[2]: best = r
+            if r[2] >= target: break
+        picks, waits, _n = best
+        for c in waits: db.add(Enrollment(course_id=c.id, student_id=u.id, status=EnrollmentStatus.waitlisted))
+        for c, g in picks:
+            db.add(Enrollment(course_id=c.id, student_id=u.id, status=EnrollmentStatus.enrolled, group_no=g))
+            sizes = group_sizes.setdefault(c.id, {}); sizes[g] = sizes.get(g, 0) + 1; taken[c.id] = taken.get(c.id, 0) + 1
+            # mid-semester: the first one or two components are graded for most students
+            k = rnd.choice([0, 1, 1, 2, 2])
+            comps = {s["name"]: max(0, min(s["maxPoints"], round(s["maxPoints"] * max(0.2, min(1, rnd.gauss(level, 14) / 100)))))
+                     for s in c.grading_scheme[:k]}
+            if comps and not db.scalar(select(Grade.id).where(Grade.course_id == c.id, Grade.student_id == u.id)):
+                db.add(Grade(course_id=c.id, student_id=u.id, components=comps, updated_by=c.guarantor_id))
+        db.flush()
+
+    def first_year(u: User, level: float) -> set[str]:
+        """Final grades for the common first year (last year's courses, every program); returns the ids of the passed ones."""
+        passed: set[str] = set()
+        for code in sorted(c[0] for c in COURSES if c[3] is None):
+            c = courses[code]
+            frac = max(0.35, min(1.0, rnd.gauss(level, 12) / 100))
+            comps = {s["name"]: max(0, min(s["maxPoints"], round(s["maxPoints"] * max(0, min(1, frac + rnd.uniform(-0.12, 0.12)))))) for s in c.grading_scheme}
+            score, mark = compute_final(c.grading_scheme, comps)
+            if mark == "FX" and len(passed) < len([x for x in COURSES if x[3] is None and x[0] < code]):  # one failure at most: the rest were passed on a resit
+                comps = {s["name"]: max(comps[s["name"]], s["minPoints"] + rnd.randint(0, 4)) for s in c.grading_scheme}
+                need = 61 + rnd.randint(0, 6) - sum(comps.values())  # E or D: just enough to pass
+                if need > 0: comps[c.grading_scheme[-1]["name"]] = min(c.grading_scheme[-1]["maxPoints"], comps[c.grading_scheme[-1]["name"]] + need)
+                score, mark = compute_final(c.grading_scheme, comps)
+            db.add(Enrollment(course_id=c.id, student_id=u.id)); db.add(Grade(course_id=c.id, student_id=u.id, components=comps, final_score=score, mark=mark,
+                                                                              updated_by=c.guarantor_id))
+            if mark != "FX": passed.add(c.id)
+        db.flush()
+        return passed
+
+    # the students that already exist (the demo seed's student1-3) get topped up too
+    existing = list(db.scalars(select(User).where(User.role == Role.student)))
+    for u in existing:
+        level = rnd.gauss(80, 10)
+        passed = {g.course_id for g in db.scalars(select(Grade).where(Grade.student_id == u.id)) if g.mark and g.mark != "FX"}
+        if not db.scalar(select(Enrollment.id).where(Enrollment.student_id == u.id, Enrollment.course_id == courses["KPI/PRG1"].id)): passed |= first_year(u, level)
+        enroll_up_to(u, rnd.choice([4, 5]), plan_ids.get(u.study_program_id, set()), passed, level, waitlist_chance=0)
+    n_new = max(0, n_students - len(existing))
+    students: list[tuple[User, StudyProgram]] = [(u, None) for u in existing]
+    for i in range(n_new):
         p, _ = programs[i % len(programs)] if rnd.random() < 0.6 else rnd.choice(programs)
         f, l = person()
         u = make_user(f, l, Role.student, prog=p); db.flush(); students.append((u, p))
-        passed: set[str] = set()
         base = rnd.gauss(80, 10)
-        for code in sorted(plan_of[p.id]):
-            c = courses[code]
-            if not c.archived: continue
-            frac = max(0.35, min(1.0, rnd.gauss(base, 12) / 100))
-            comps = {s["name"]: max(0, min(s["maxPoints"], round(s["maxPoints"] * max(0, min(1, frac + rnd.uniform(-0.12, 0.12)))))) for s in c.grading_scheme}
-            score, mark = compute_final(c.grading_scheme, comps)
-            db.add(Enrollment(course_id=c.id, student_id=u.id)); db.add(Grade(course_id=c.id, student_id=u.id, components=comps, final_score=score, mark=mark,
-                                                                              updated_by=c.guarantor_id))
-            if mark != "FX": passed.add(code)
-        mine: list[CourseSession] = []
-        candidates = [code for code in sorted(plan_of[p.id]) if not courses[code].archived and courses[code].semester.value == "winter"
-                      and all(pre in passed for pre in COURSES[[x[0] for x in COURSES].index(code)][5])]
-        rnd.shuffle(candidates)
-        for code in candidates[: rnd.randint(4, 6)]:
-            c = courses[code]
-            sizes = group_sizes.setdefault(c.id, {g: 0 for g in range(1, c.group_count + 1)})
-            g = min(sizes, key=lambda x: (sizes[x], x))  # the emptiest group, like the API does
-            its = [x for x in sessions_of.get(c.id, []) if x.group_no in (None, g)]
-            if any(overlaps(a, b) for a in its for b in mine): continue
-            full = taken.get(c.id, 0) >= c.capacity
-            db.add(Enrollment(course_id=c.id, student_id=u.id, status=EnrollmentStatus.waitlisted if full else EnrollmentStatus.enrolled, group_no=None if full else g))
-            if not full:
-                sizes[g] += 1
-                taken[c.id] = taken.get(c.id, 0) + 1; mine += its
-                # mid-semester: the first one or two components are graded for most students
-                k = rnd.choice([0, 1, 1, 2, 2])
-                comps = {s["name"]: max(0, min(s["maxPoints"], round(s["maxPoints"] * max(0.2, min(1, rnd.gauss(base, 14) / 100)))))
-                         for s in c.grading_scheme[:k]}
-                if comps: db.add(Grade(course_id=c.id, student_id=u.id, components=comps, updated_by=c.guarantor_id))
-    db.flush()
+        passed = first_year(u, base)
+        db.flush()
+        enroll_up_to(u, rnd.choice([4, 4, 5]), plan_ids[p.id], passed, base)
+    short = [u.email for u, _ in students
+             if db.scalar(select(func.count()).select_from(Enrollment).join(Course, Course.id == Enrollment.course_id)
+                          .where(Enrollment.student_id == u.id, Enrollment.status == EnrollmentStatus.enrolled, Course.archived.is_(False))) < 4]
+    if short: print(f"Warning: {len(short)} students have fewer than 4 active courses (no free seats or clash-free slots): {', '.join(short[:5])}")
 
     # ---- exam terms (January and early February) and registrations
     day = datetime(2027, 1, 11)
@@ -298,14 +354,14 @@ def generate(db, n_students: int, seed: int) -> str:
     from .seed_rooms import remap
     remap(db)  # rooms by seat count: the smallest room that holds the enrolled students
     waiting = db.scalar(select(func.count()).select_from(Enrollment).where(Enrollment.status == EnrollmentStatus.waitlisted))
-    return (f"Generated {len(COURSES)} courses, {sum(len(v) for v in teachers.values())} teachers, {n_students} students, {len(exams)} exam terms "
+    return (f"Generated {len(COURSES)} courses, {sum(len(v) for v in teachers.values())} teachers, {len(students)} students ({n_new} new), {len(exams)} exam terms "
             f"({sum(reg_count.values())} registrations), {waiting} waitlisted enrollments. Password of all generated accounts: SEED_ADMIN_PASSWORD.")
 
 
 if __name__ == "__main__":
     from . import models  # noqa: F401
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--students", type=int, default=150)
+    ap.add_argument("--students", type=int, default=100, help="total number of students after generation (the existing ones count)")
     ap.add_argument("--seed", type=int, default=1)
     a = ap.parse_args()
     Base.metadata.create_all(engine)

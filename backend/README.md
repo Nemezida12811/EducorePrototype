@@ -27,7 +27,7 @@ Drafts: a course has `status` (`draft` | `published`, default `published` for AP
 
 Schema upgrades: there is no migration tool yet, so `upgrade_schema()` (run at startup) adds missing nullable / defaulted columns to tables created by an older version. Anything bigger needs Alembic.
 
-Bulk test data: `python -m app.seed_data [--students 150] [--seed 1]` adds ~150 students, 12 teachers, 4 departments, 5 programs with study plans, 26 courses with conflict-free timetables, prerequisites, grades, waitlists, exam terms and registrations, announcements and calendar dates (deterministic per `--seed`; refuses `ENV=production`; run once, delete `educore.db` to start over).
+Bulk test data: `python -m app.seed_data [--students 100] [--seed 1]` tops the database up to 100 students in total (the demo seed's student1-3 included) and gives every one of them 4-5 active (enrolled, not waitlisted) winter courses: own study plan first, electives of other departments after, never a timetable clash, a full course or a missing prerequisite. It also adds 12 teachers, 4 departments, 5 programs with study plans, 26 courses with conflict-free timetables, a graded common first year, mid-semester partial grades, a few waitlists, exam terms and registrations, announcements and calendar dates (run once, delete `educore.db` to start over). With `ENV=production` it runs only when `SEED_DEMO=true`; both compose files run it on start after `app.seed`.
 
 Demo accounts (dev seed only; password = `SEED_ADMIN_PASSWORD`): `superadmin@`, `admin@`, `teacher1@`, `teacher2@`, `student1@`…`student3@educore.example`.
 With `ENV=production` the seed creates only the institution and one super admin – **change that password immediately**.

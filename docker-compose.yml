@@ -4,11 +4,11 @@ services:
   api:
     build: ./backend
     env_file: .env
-    # First start: tables are created and filled with test data (idempotent, later starts do nothing).
+    # First start: tables are created and filled with test data (app.seed + app.seed_data, 100 students; idempotent, later starts do nothing).
     command:
       - sh
       - -c
-      - python -m app.seed && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips '*'
+      - python -m app.seed && python -m app.seed_data && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips '*'
     environment:
       ENV: production
       DATABASE_URL: sqlite:////data/educore.db
