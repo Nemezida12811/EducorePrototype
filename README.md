@@ -37,16 +37,23 @@ Nasadená aplikácia: https://voitiuk-educore.student.kpi.fei.tuke.sk
 
 ## Testovanie
 
-**Automatické testy backendu** (46 testov, SQLite v dočasnom súbore):
+**Automatické testy** (bežia aj automaticky pri každom builde, pozri nižšie):
 
 ```bash
+# backend: 80 testov (API, role a prístupové práva, známky, zápis, rýchle prihlásenie, health), SQLite v dočasnom súbore
 cd backend
 python -m venv .venv && . .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
-python -m pytest -q
+python -m pytest -q                                # očakávané: 80 passed
+
+# frontend: 21 testov (prihlasovací formulár, rýchle prihlásenie, API klient: tokeny, refresh, chyby), Vitest + jsdom
+cd frontend
+npm ci
+npm test                                           # očakávané: 21 passed
+npx tsc --noEmit                                   # kontrola typov
 ```
 
-Očakávaný výsledok: `46 passed`.
+**Testy pred nasadením.** Testy sú súčasťou Docker buildu: `backend/Dockerfile` má etapu `test` (spustí `pytest`) a `frontend/Dockerfile` spúšťa `npm test` pred `npm run build`. Ak niektorý test zlyhá, image sa nevytvorí a nasadenie (`docker compose up --build` aj Coolify) skončí chybou. Coolify odstráni staré kontajnery až po úspešnom builde, takže predchádzajúca verzia ďalej beží.
 
 **Kontrola bežiaceho systému:**
 

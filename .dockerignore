@@ -1,0 +1,14 @@
+# Build context of the "web" image (repository root). Keeps host files (e.g. Windows node_modules) out of the build.
+.git
+.github
+.idea
+**/node_modules
+**/dist
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/pytest-cache-files-*
+**/.env
+**/.env.*
+!**/.env.example
+**/*.db

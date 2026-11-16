@@ -6,6 +6,8 @@ RUN npm ci
 COPY frontend/ ./
 # Empty VITE_API_URL = same-origin ("/api/v1"). VITE_BASE=/ because the app now lives at the site root.
 ENV VITE_API_URL="" VITE_BASE=/
+# Quality gate: unit tests and type check must pass before the app is built (a failure fails the deploy).
+RUN npm test
 RUN npm run build
 
 FROM caddy:2-alpine

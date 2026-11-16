@@ -6,7 +6,14 @@ from app.models import User
 from app.routers import auth as auth_router
 
 
-def test_demo_login_is_off_by_default(client):
+def test_demo_login_is_off_by_default():
+    from app.config import Settings
+
+    assert Settings.model_fields["demo_login"].default is False  # the code default, independent of any local .env
+
+
+def test_demo_login_endpoints_answer_404_when_switched_off(client, monkeypatch):
+    monkeypatch.setattr(auth_router.settings, "demo_login", False)  # explicit, so a developer's .env (DEMO_LOGIN=true) cannot change the result
     assert client.get("/api/v1/auth/demo-accounts").status_code == 404
     assert client.post("/api/v1/auth/demo-login", json={"role": "admin"}).status_code == 404
 
